@@ -1,0 +1,4 @@
+config.json
+AutoCheckBJMF.log
+__pycache__/
+*.pyc
