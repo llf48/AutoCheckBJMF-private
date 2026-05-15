@@ -2,6 +2,7 @@ from cloud_config import is_inside_china_time_window, load_cloud_config
 import random
 import re
 import time
+from datetime import datetime
 
 import requests
 from bs4 import BeautifulSoup
@@ -56,6 +57,7 @@ def check_one_cookie(config, cookie):
     gps_ids = re.findall(r"punch_gps\((\d+)\)", response.text)
     scan_ids = re.findall(r"punchcard_(\d+)", response.text)
     punch_ids = gps_ids + scan_ids
+    print("Checked at:", datetime.now().isoformat(timespec="seconds"))
     print("Found GPS punch ids:", gps_ids)
     print("Found scan punch ids:", scan_ids)
 
