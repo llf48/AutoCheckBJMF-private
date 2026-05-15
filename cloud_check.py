@@ -42,6 +42,27 @@ def get_headers(class_id, cookie):
     }
 
 
+def _unique(values):
+    seen = set()
+    unique_values = []
+    for value in values:
+        if value not in seen:
+            seen.add(value)
+            unique_values.append(value)
+    return unique_values
+
+
+def extract_punch_ids(html):
+    gps_ids = []
+    gps_ids.extend(re.findall(r"punch_gps\((\d+)\)", html))
+    gps_ids.extend(re.findall(r"pages/punchs/gps\?[^\"']*punch_id=(\d+)", html))
+    gps_ids.extend(re.findall(r"/student/punchw/course/\d+/(\d+)", html))
+    gps_ids.extend(re.findall(r"id=[\"']gps_btn_(\d+)[\"']", html))
+
+    scan_ids = re.findall(r"punchcard_(\d+)", html)
+    return _unique(gps_ids), _unique(scan_ids)
+
+
 def check_one_cookie(config, cookie):
     class_id = config["class"]
     url = "https://k8n.cn/student/course/" + class_id + "/punchs"
@@ -54,8 +75,7 @@ def check_one_cookie(config, cookie):
     if title_tag and "出错" in title_tag.text:
         raise RuntimeError("Login status is abnormal. BJMF_COOKIE may have expired.")
 
-    gps_ids = re.findall(r"punch_gps\((\d+)\)", response.text)
-    scan_ids = re.findall(r"punchcard_(\d+)", response.text)
+    gps_ids, scan_ids = extract_punch_ids(response.text)
     punch_ids = gps_ids + scan_ids
     print("Checked at:", datetime.now().isoformat(timespec="seconds"))
     print("Found GPS punch ids:", gps_ids)
