@@ -40,4 +40,5 @@ jobs:
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
           BJMF_WATCH_MINUTES: "40"
           BJMF_WATCH_INTERVAL_SECONDS: "300"
+          BJMF_AUTOSUBMIT: "true"
         run: python cloud_check.py

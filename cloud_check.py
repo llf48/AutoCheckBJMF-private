@@ -3,6 +3,7 @@ import random
 import re
 import time
 from datetime import datetime
+from urllib.parse import urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -57,18 +58,85 @@ def extract_punch_ids(html):
     gps_ids.extend(re.findall(r"punch_gps\((\d+)\)", html))
     gps_ids.extend(re.findall(r"pages/punchs/gps\?[^\"']*punch_id=(\d+)", html))
     gps_ids.extend(re.findall(r"/student/punchw/course/\d+/(\d+)", html))
+    gps_ids.extend(re.findall(r"/student/punchs/course/\d+/(\d+)", html))
     gps_ids.extend(re.findall(r"id=[\"']gps_btn_(\d+)[\"']", html))
 
     scan_ids = re.findall(r"punchcard_(\d+)", html)
     return _unique(gps_ids), _unique(scan_ids)
 
 
-def extract_gps_submit_urls(html, class_id):
+def extract_submit_urls(html, class_id):
     urls = {}
-    pattern = r"href=[\"'](/student/punchw/course/%s/(\d+)\?[^\"']+)[\"']" % re.escape(class_id)
-    for path, punch_id in re.findall(pattern, html):
-        urls[punch_id] = "https://k8n.cn" + path
+    soup = BeautifulSoup(html, "html.parser")
+    patterns = [
+        r"(https?://k8n\.cn/student/punchw/course/%s/(\d+)[^\"'<>\s]*)" % re.escape(class_id),
+        r"(https?://k8n\.cn/student/punchs/course/%s/(\d+)[^\"'<>\s]*)" % re.escape(class_id),
+        r"(/student/punchw/course/%s/(\d+)[^\"'<>\s]*)" % re.escape(class_id),
+        r"(/student/punchs/course/%s/(\d+)[^\"'<>\s]*)" % re.escape(class_id),
+    ]
+
+    def add_url(value):
+        if not value:
+            return
+        for pattern in patterns:
+            for matched_url, punch_id in re.findall(pattern, value):
+                urls[punch_id] = urljoin("https://k8n.cn", matched_url)
+
+    for tag in soup.find_all(True):
+        for attr in ("href", "action", "path", "data-url", "data-href", "data-action"):
+            add_url(tag.get(attr))
+    add_url(html)
     return urls
+
+
+def extract_gps_submit_urls(html, class_id):
+    return extract_submit_urls(html, class_id)
+
+
+def extract_form_submit_url(html, page_url):
+    soup = BeautifulSoup(html, "html.parser")
+    form = soup.find("form", method=lambda value: value and value.lower() == "post")
+    if not form:
+        return None
+    return urljoin(page_url, form.get("action") or page_url)
+
+
+def get_visible_text(html):
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup(["script", "style", "noscript"]):
+        tag.decompose()
+    return "\n".join(line.strip() for line in soup.get_text("\n", strip=True).splitlines() if line.strip())
+
+
+def has_signed_status(html):
+    text = get_visible_text(html)
+    return "已签到" in text or "已签" in text
+
+
+def raise_if_unparsed_active_task(html, gps_ids, scan_ids):
+    if gps_ids or scan_ids or has_signed_status(html):
+        return
+    text = get_visible_text(html)
+    active_markers = ("点此去完成签到", "完成签到", "立即签到", "确定")
+    if any(marker in text for marker in active_markers):
+        raise RuntimeError("Active punch task is visible, but cloud_check could not parse its punch id.")
+
+
+def resolve_submit_url(candidate_url, headers):
+    if not candidate_url:
+        return None
+    response = requests.get(candidate_url, headers=headers, timeout=30)
+    response.raise_for_status()
+    return extract_form_submit_url(response.text, response.url) or candidate_url
+
+
+def verify_signed(class_id, headers):
+    for suffix in ("/punchs?op=ing", "/punchs?op=ed"):
+        response = requests.get("https://k8n.cn/student/course/" + class_id + suffix, headers=headers, timeout=30)
+        response.raise_for_status()
+        if has_signed_status(response.text):
+            return True
+    return False
 
 
 def check_one_cookie(config, cookie):
@@ -84,17 +152,24 @@ def check_one_cookie(config, cookie):
         raise RuntimeError("Login status is abnormal. BJMF_COOKIE may have expired.")
 
     gps_ids, scan_ids = extract_punch_ids(response.text)
-    gps_submit_urls = extract_gps_submit_urls(response.text, class_id)
-    punch_ids = gps_ids + scan_ids
+    submit_urls = extract_submit_urls(response.text, class_id)
+    raise_if_unparsed_active_task(response.text, gps_ids, scan_ids)
+    punch_ids = _unique(gps_ids + scan_ids)
     print("Checked at:", datetime.now().isoformat(timespec="seconds"))
     print("Found GPS punch ids:", gps_ids)
     print("Found scan punch ids:", scan_ids)
+    print("Found submit urls:", submit_urls)
+
+    if punch_ids and not config.get("autosubmit", False):
+        print("BJMF_AUTOSUBMIT is not true. Dry run only; no punch request was submitted.")
+        return len(punch_ids)
 
     for punch_id in punch_ids:
-        punch_url = gps_submit_urls.get(
+        punch_url = submit_urls.get(
             punch_id,
             "https://k8n.cn/student/punchs/course/" + class_id + "/" + punch_id,
         )
+        punch_url = resolve_submit_url(punch_url, headers) or punch_url
         payload = {
             "id": punch_id,
             "lat": modify_decimal_part(config["lat"]),
@@ -108,6 +183,9 @@ def check_one_cookie(config, cookie):
         result_soup = BeautifulSoup(punch_response.text, "html.parser")
         result_title = result_soup.find("div", id="title")
         print(result_title.text.strip() if result_title else "Punch request sent.")
+
+    if punch_ids and not verify_signed(class_id, headers):
+        raise RuntimeError("Punch request finished, but follow-up check did not show a signed status.")
 
     return len(punch_ids)
 

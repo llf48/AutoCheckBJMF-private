@@ -62,6 +62,26 @@ class CloudConfigTests(unittest.TestCase):
         self.assertEqual(config["watch_minutes"], 40)
         self.assertEqual(config["watch_interval_seconds"], 300)
 
+    def test_autosubmit_requires_explicit_opt_in(self):
+        env = {
+            "BJMF_CLASS_ID": "96755",
+            "BJMF_LAT": "23.185647",
+            "BJMF_LNG": "113.33389",
+            "BJMF_ACC": "30",
+            "BJMF_COOKIE": "remember_student_example=value",
+        }
+
+        with patch.dict(os.environ, env, clear=True):
+            config = load_cloud_config()
+
+        self.assertFalse(config["autosubmit"])
+
+        env["BJMF_AUTOSUBMIT"] = "true"
+        with patch.dict(os.environ, env, clear=True):
+            config = load_cloud_config()
+
+        self.assertTrue(config["autosubmit"])
+
 
 if __name__ == "__main__":
     unittest.main()
