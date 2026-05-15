@@ -6,15 +6,15 @@ env:
 on:
   workflow_dispatch:
   schedule:
-    # GitHub cron uses UTC. These ranges cover 07:50-18:00 China time.
-    - cron: "50,55 23 * * *"
-    - cron: "*/5 0-9 * * *"
-    - cron: "0 10 * * *"
+    # GitHub cron uses UTC. Start a 40-minute watcher every 30 minutes.
+    # These ranges cover 07:50-18:00 China time with overlap.
+    - cron: "50 23 * * *"
+    - cron: "20,50 0-9 * * *"
 
 jobs:
   checkin:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 45
 
     steps:
       - name: Checkout repo
@@ -38,4 +38,6 @@ jobs:
           BJMF_ACC: "30"
           BJMF_COOKIE: ${{ secrets.BJMF_COOKIE }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
+          BJMF_WATCH_MINUTES: "40"
+          BJMF_WATCH_INTERVAL_SECONDS: "300"
         run: python cloud_check.py

@@ -45,6 +45,23 @@ class CloudConfigTests(unittest.TestCase):
         self.assertTrue(is_inside_china_time_window(inside))
         self.assertFalse(is_inside_china_time_window(outside))
 
+    def test_loads_watch_mode_settings(self):
+        env = {
+            "BJMF_CLASS_ID": "96755",
+            "BJMF_LAT": "23.185647",
+            "BJMF_LNG": "113.33389",
+            "BJMF_ACC": "30",
+            "BJMF_COOKIE": "remember_student_example=value",
+            "BJMF_WATCH_MINUTES": "40",
+            "BJMF_WATCH_INTERVAL_SECONDS": "300",
+        }
+
+        with patch.dict(os.environ, env, clear=True):
+            config = load_cloud_config()
+
+        self.assertEqual(config["watch_minutes"], 40)
+        self.assertEqual(config["watch_interval_seconds"], 300)
+
 
 if __name__ == "__main__":
     unittest.main()

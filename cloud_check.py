@@ -1,6 +1,7 @@
 from cloud_config import is_inside_china_time_window, load_cloud_config
 import random
 import re
+import time
 
 import requests
 from bs4 import BeautifulSoup
@@ -74,6 +75,8 @@ def check_one_cookie(config, cookie):
         result_title = result_soup.find("div", id="title")
         print(result_title.text.strip() if result_title else "Punch request sent.")
 
+    return len(punch_ids)
+
 
 def run_once():
     if not is_inside_china_time_window():
@@ -81,9 +84,37 @@ def run_once():
         return
 
     config = load_cloud_config()
+    total_found = 0
     for cookie in config["cookie"]:
-        check_one_cookie(config, cookie)
+        total_found += check_one_cookie(config, cookie)
+    return total_found
+
+
+def run_watch():
+    config = load_cloud_config()
+    watch_minutes = config["watch_minutes"]
+    if watch_minutes <= 0:
+        return run_once()
+
+    deadline = time.time() + watch_minutes * 60
+    interval = config["watch_interval_seconds"]
+    while True:
+        if not is_inside_china_time_window():
+            print("Outside 07:50-18:00 China time window. Stopping watch.")
+            return
+
+        total_found = 0
+        for cookie in config["cookie"]:
+            total_found += check_one_cookie(config, cookie)
+        if total_found:
+            print("Found and submitted %d punch task(s). Ending watch." % total_found)
+            return
+        if time.time() + interval > deadline:
+            print("Watch window ended without active punch tasks.")
+            return
+        print("No active punch task. Sleeping %d seconds." % interval)
+        time.sleep(interval)
 
 
 if __name__ == "__main__":
-    run_once()
+    run_watch()

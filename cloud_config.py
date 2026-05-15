@@ -25,6 +25,8 @@ def load_cloud_config():
         "cookie": cookies,
         "pushplus": os.environ.get("PUSHPLUS_TOKEN", "").strip(),
         "debug": os.environ.get("BJMF_DEBUG", "").lower() == "true",
+        "watch_minutes": int(os.environ.get("BJMF_WATCH_MINUTES", "0") or "0"),
+        "watch_interval_seconds": int(os.environ.get("BJMF_WATCH_INTERVAL_SECONDS", "300") or "300"),
     }
 
 
