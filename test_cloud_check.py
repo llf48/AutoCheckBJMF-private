@@ -1,6 +1,7 @@
 import unittest
 
 from cloud_check import extract_punch_ids
+from cloud_check import extract_gps_submit_urls
 
 
 class CloudCheckParsingTests(unittest.TestCase):
@@ -27,6 +28,23 @@ class CloudCheckParsingTests(unittest.TestCase):
 
         self.assertEqual(gps_ids, ["111"])
         self.assertEqual(scan_ids, ["222"])
+
+    def test_extracts_new_gps_submit_url(self):
+        html = '''
+            <a id="gps_btn_5228732"
+               href="/student/punchw/course/96755/5228732?sid=3170461">
+               点此去完成签到
+            </a>
+        '''
+
+        urls = extract_gps_submit_urls(html, "96755")
+
+        self.assertEqual(
+            urls,
+            {
+                "5228732": "https://k8n.cn/student/punchw/course/96755/5228732?sid=3170461",
+            },
+        )
 
 
 if __name__ == "__main__":

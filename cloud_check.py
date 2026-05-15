@@ -63,6 +63,14 @@ def extract_punch_ids(html):
     return _unique(gps_ids), _unique(scan_ids)
 
 
+def extract_gps_submit_urls(html, class_id):
+    urls = {}
+    pattern = r"href=[\"'](/student/punchw/course/%s/(\d+)\?[^\"']+)[\"']" % re.escape(class_id)
+    for path, punch_id in re.findall(pattern, html):
+        urls[punch_id] = "https://k8n.cn" + path
+    return urls
+
+
 def check_one_cookie(config, cookie):
     class_id = config["class"]
     url = "https://k8n.cn/student/course/" + class_id + "/punchs"
@@ -76,13 +84,17 @@ def check_one_cookie(config, cookie):
         raise RuntimeError("Login status is abnormal. BJMF_COOKIE may have expired.")
 
     gps_ids, scan_ids = extract_punch_ids(response.text)
+    gps_submit_urls = extract_gps_submit_urls(response.text, class_id)
     punch_ids = gps_ids + scan_ids
     print("Checked at:", datetime.now().isoformat(timespec="seconds"))
     print("Found GPS punch ids:", gps_ids)
     print("Found scan punch ids:", scan_ids)
 
     for punch_id in punch_ids:
-        punch_url = "https://k8n.cn/student/punchs/course/" + class_id + "/" + punch_id
+        punch_url = gps_submit_urls.get(
+            punch_id,
+            "https://k8n.cn/student/punchs/course/" + class_id + "/" + punch_id,
+        )
         payload = {
             "id": punch_id,
             "lat": modify_decimal_part(config["lat"]),
