@@ -28,6 +28,7 @@ def load_cloud_config():
         "autosubmit": os.environ.get("BJMF_AUTOSUBMIT", "").lower() == "true",
         "watch_minutes": int(os.environ.get("BJMF_WATCH_MINUTES", "0") or "0"),
         "watch_interval_seconds": int(os.environ.get("BJMF_WATCH_INTERVAL_SECONDS", "300") or "300"),
+        "watch_until_window_end": os.environ.get("BJMF_WATCH_UNTIL_WINDOW_END", "").lower() == "true",
     }
 
 
@@ -39,3 +40,11 @@ def is_inside_china_time_window(now_utc=None, start="07:50", end="18:00"):
     start_dt = now_china.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
     end_dt = now_china.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
     return start_dt <= now_china <= end_dt
+
+
+def seconds_until_china_time_window_end(now_utc=None, end="18:00"):
+    now_utc = now_utc or datetime.now(timezone.utc)
+    now_china = now_utc.astimezone(CHINA_TZ)
+    end_hour, end_minute = [int(part) for part in end.split(":")]
+    end_dt = now_china.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
+    return max(0, int((end_dt - now_china).total_seconds()))

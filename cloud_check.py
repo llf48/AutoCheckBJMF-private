@@ -1,4 +1,5 @@
-from cloud_config import is_inside_china_time_window, load_cloud_config
+from cloud_config import CHINA_TZ, is_inside_china_time_window, load_cloud_config
+from cloud_config import seconds_until_china_time_window_end
 import random
 import re
 import time
@@ -155,7 +156,7 @@ def check_one_cookie(config, cookie):
     submit_urls = extract_submit_urls(response.text, class_id)
     raise_if_unparsed_active_task(response.text, gps_ids, scan_ids)
     punch_ids = _unique(gps_ids + scan_ids)
-    print("Checked at:", datetime.now().isoformat(timespec="seconds"))
+    print("Checked at China time:", datetime.now(CHINA_TZ).isoformat(timespec="seconds"))
     print("Found GPS punch ids:", gps_ids)
     print("Found scan punch ids:", scan_ids)
     print("Found submit urls:", submit_urls)
@@ -208,7 +209,12 @@ def run_watch():
     if watch_minutes <= 0:
         return run_once()
 
-    deadline = time.time() + watch_minutes * 60
+    watch_seconds = watch_minutes * 60
+    if config.get("watch_until_window_end"):
+        seconds_until_end = seconds_until_china_time_window_end()
+        watch_seconds = min(watch_seconds, seconds_until_end) if watch_seconds else seconds_until_end
+        print("Watching until China time window end or %d seconds, whichever comes first." % watch_seconds)
+    deadline = time.time() + watch_seconds
     interval = config["watch_interval_seconds"]
     while True:
         if not is_inside_china_time_window():

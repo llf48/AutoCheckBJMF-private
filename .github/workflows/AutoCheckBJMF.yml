@@ -6,15 +6,19 @@ env:
 on:
   workflow_dispatch:
   schedule:
-    # GitHub cron uses UTC. Start a 40-minute watcher every 30 minutes.
-    # These ranges cover 07:50-18:00 China time with overlap.
+    # GitHub cron uses UTC. Scheduled events can be delayed or dropped, so each
+    # run starts a long watcher. Concurrency keeps at most one watcher active.
     - cron: "50 23 * * *"
     - cron: "20,50 0-9 * * *"
+
+concurrency:
+  group: bjmf-cloud-check
+  cancel-in-progress: false
 
 jobs:
   checkin:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 360
 
     steps:
       - name: Checkout repo
@@ -38,7 +42,8 @@ jobs:
           BJMF_ACC: "30"
           BJMF_COOKIE: ${{ secrets.BJMF_COOKIE }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
-          BJMF_WATCH_MINUTES: "40"
-          BJMF_WATCH_INTERVAL_SECONDS: "300"
+          BJMF_WATCH_MINUTES: "350"
+          BJMF_WATCH_INTERVAL_SECONDS: "180"
+          BJMF_WATCH_UNTIL_WINDOW_END: "true"
           BJMF_AUTOSUBMIT: "true"
         run: python cloud_check.py

@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch
 
 from cloud_config import is_inside_china_time_window, load_cloud_config
+from cloud_config import seconds_until_china_time_window_end
 
 
 class CloudConfigTests(unittest.TestCase):
@@ -54,6 +55,7 @@ class CloudConfigTests(unittest.TestCase):
             "BJMF_COOKIE": "remember_student_example=value",
             "BJMF_WATCH_MINUTES": "40",
             "BJMF_WATCH_INTERVAL_SECONDS": "300",
+            "BJMF_WATCH_UNTIL_WINDOW_END": "true",
         }
 
         with patch.dict(os.environ, env, clear=True):
@@ -61,6 +63,14 @@ class CloudConfigTests(unittest.TestCase):
 
         self.assertEqual(config["watch_minutes"], 40)
         self.assertEqual(config["watch_interval_seconds"], 300)
+        self.assertTrue(config["watch_until_window_end"])
+
+    def test_calculates_seconds_until_window_end(self):
+        now = datetime(2026, 5, 16, 7, 30, tzinfo=timezone.utc)
+
+        seconds = seconds_until_china_time_window_end(now)
+
+        self.assertEqual(seconds, 9000)
 
     def test_autosubmit_requires_explicit_opt_in(self):
         env = {
