@@ -7,11 +7,11 @@ on:
   workflow_dispatch:
   schedule:
     # GitHub cron uses UTC and scheduled events can be delayed or dropped.
-    # Redundant morning starts improve coverage for short 07:50 China sign-ins.
+    # Use off-peak minute offsets and redundant 10-minute starts across
+    # 07:33-17:53 China time to cover short sign-in windows more reliably.
     # Concurrency keeps at most one watcher active.
-    - cron: "30,40,50 23 * * *"
-    - cron: "0,10,20,30 0 * * *"
-    - cron: "20,50 1-9 * * *"
+    - cron: "33,43,53 23 * * *"
+    - cron: "3,13,23,33,43,53 0-9 * * *"
 
 concurrency:
   group: bjmf-cloud-check
