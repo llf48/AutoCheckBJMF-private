@@ -5,13 +5,22 @@ env:
 
 on:
   workflow_dispatch:
+    inputs:
+      watch_minutes:
+        description: "How many minutes this run should watch for punch tasks"
+        required: false
+        default: "4"
+      watch_interval_seconds:
+        description: "Seconds between checks while watching"
+        required: false
+        default: "60"
   schedule:
     # GitHub cron uses UTC and scheduled events can be delayed or dropped.
-    # Use off-peak minute offsets and redundant 10-minute starts across
-    # 07:33-17:53 China time to cover short sign-in windows more reliably.
+    # Use off-peak minute offsets and redundant 5-minute starts across
+    # 07:33-17:58 China time to cover short sign-in windows more reliably.
     # Concurrency keeps at most one watcher active.
-    - cron: "33,43,53 23 * * *"
-    - cron: "3,13,23,33,43,53 0-9 * * *"
+    - cron: "33,38,43,48,53,58 23 * * *"
+    - cron: "3,8,13,18,23,28,33,38,43,48,53,58 0-9 * * *"
 
 concurrency:
   group: bjmf-cloud-check
@@ -20,7 +29,7 @@ concurrency:
 jobs:
   checkin:
     runs-on: ubuntu-latest
-    timeout-minutes: 360
+    timeout-minutes: 12
 
     steps:
       - name: Checkout repo
@@ -44,8 +53,8 @@ jobs:
           BJMF_ACC: "30"
           BJMF_COOKIE: ${{ secrets.BJMF_COOKIE }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
-          BJMF_WATCH_MINUTES: "350"
-          BJMF_WATCH_INTERVAL_SECONDS: "60"
+          BJMF_WATCH_MINUTES: ${{ github.event.inputs.watch_minutes || '4' }}
+          BJMF_WATCH_INTERVAL_SECONDS: ${{ github.event.inputs.watch_interval_seconds || '60' }}
           BJMF_WATCH_UNTIL_WINDOW_END: "true"
           BJMF_AUTOSUBMIT: "true"
         run: python cloud_check.py
