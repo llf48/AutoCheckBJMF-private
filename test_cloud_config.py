@@ -5,6 +5,7 @@ from unittest.mock import patch
 
 from cloud_config import is_inside_china_time_window, load_cloud_config
 from cloud_config import seconds_until_china_time_window_end
+from cloud_config import seconds_until_china_time_window_start
 
 
 class CloudConfigTests(unittest.TestCase):
@@ -71,6 +72,20 @@ class CloudConfigTests(unittest.TestCase):
         seconds = seconds_until_china_time_window_end(now)
 
         self.assertEqual(seconds, 9000)
+
+    def test_calculates_seconds_until_window_start(self):
+        now = datetime(2026, 5, 24, 23, 30, tzinfo=timezone.utc)
+
+        seconds = seconds_until_china_time_window_start(now)
+
+        self.assertEqual(seconds, 1200)
+
+    def test_window_start_wait_is_zero_after_window_opens(self):
+        now = datetime(2026, 5, 24, 23, 50, tzinfo=timezone.utc)
+
+        seconds = seconds_until_china_time_window_start(now)
+
+        self.assertEqual(seconds, 0)
 
     def test_autosubmit_requires_explicit_opt_in(self):
         env = {

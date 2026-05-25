@@ -6,10 +6,12 @@ env:
 on:
   workflow_dispatch:
   schedule:
-    # GitHub cron uses UTC. Scheduled events can be delayed or dropped, so each
-    # run starts a long watcher. Concurrency keeps at most one watcher active.
-    - cron: "50 23 * * *"
-    - cron: "20,50 0-9 * * *"
+    # GitHub cron uses UTC and scheduled events can be delayed or dropped.
+    # Redundant morning starts improve coverage for short 07:50 China sign-ins.
+    # Concurrency keeps at most one watcher active.
+    - cron: "30,40,50 23 * * *"
+    - cron: "0,10,20,30 0 * * *"
+    - cron: "20,50 1-9 * * *"
 
 concurrency:
   group: bjmf-cloud-check
@@ -43,7 +45,7 @@ jobs:
           BJMF_COOKIE: ${{ secrets.BJMF_COOKIE }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
           BJMF_WATCH_MINUTES: "350"
-          BJMF_WATCH_INTERVAL_SECONDS: "180"
+          BJMF_WATCH_INTERVAL_SECONDS: "60"
           BJMF_WATCH_UNTIL_WINDOW_END: "true"
           BJMF_AUTOSUBMIT: "true"
         run: python cloud_check.py

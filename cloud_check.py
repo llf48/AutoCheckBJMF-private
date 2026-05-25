@@ -1,5 +1,6 @@
 from cloud_config import CHINA_TZ, is_inside_china_time_window, load_cloud_config
 from cloud_config import seconds_until_china_time_window_end
+from cloud_config import seconds_until_china_time_window_start
 import random
 import re
 import time
@@ -218,6 +219,14 @@ def run_watch():
     interval = config["watch_interval_seconds"]
     while True:
         if not is_inside_china_time_window():
+            seconds_until_start = seconds_until_china_time_window_start()
+            if seconds_until_start > 0:
+                if time.time() + seconds_until_start > deadline:
+                    print("Watch window ended before China time window opened.")
+                    return
+                print("Before 07:50 China time window. Sleeping %d seconds." % seconds_until_start)
+                time.sleep(seconds_until_start)
+                continue
             print("Outside 07:50-18:00 China time window. Stopping watch.")
             return
 

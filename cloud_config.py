@@ -48,3 +48,11 @@ def seconds_until_china_time_window_end(now_utc=None, end="18:00"):
     end_hour, end_minute = [int(part) for part in end.split(":")]
     end_dt = now_china.replace(hour=end_hour, minute=end_minute, second=0, microsecond=0)
     return max(0, int((end_dt - now_china).total_seconds()))
+
+
+def seconds_until_china_time_window_start(now_utc=None, start="07:50"):
+    now_utc = now_utc or datetime.now(timezone.utc)
+    now_china = now_utc.astimezone(CHINA_TZ)
+    start_hour, start_minute = [int(part) for part in start.split(":")]
+    start_dt = now_china.replace(hour=start_hour, minute=start_minute, second=0, microsecond=0)
+    return max(0, int((start_dt - now_china).total_seconds()))
