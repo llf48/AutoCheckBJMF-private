@@ -55,6 +55,6 @@ jobs:
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
           BJMF_WATCH_MINUTES: ${{ github.event.inputs.watch_minutes || '4' }}
           BJMF_WATCH_INTERVAL_SECONDS: ${{ github.event.inputs.watch_interval_seconds || '60' }}
-          BJMF_WATCH_UNTIL_WINDOW_END: "true"
+          BJMF_WATCH_UNTIL_WINDOW_END: "false"
           BJMF_AUTOSUBMIT: "true"
         run: python cloud_check.py
