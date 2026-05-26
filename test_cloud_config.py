@@ -66,6 +66,24 @@ class CloudConfigTests(unittest.TestCase):
         self.assertEqual(config["watch_interval_seconds"], 300)
         self.assertTrue(config["watch_until_window_end"])
 
+    def test_autosubmit_watch_mode_clamps_stale_external_trigger_settings(self):
+        env = {
+            "BJMF_CLASS_ID": "96755",
+            "BJMF_LAT": "23.185647",
+            "BJMF_LNG": "113.33389",
+            "BJMF_ACC": "30",
+            "BJMF_COOKIE": "remember_student_example=value",
+            "BJMF_AUTOSUBMIT": "true",
+            "BJMF_WATCH_MINUTES": "4",
+            "BJMF_WATCH_INTERVAL_SECONDS": "60",
+        }
+
+        with patch.dict(os.environ, env, clear=True):
+            config = load_cloud_config()
+
+        self.assertEqual(config["watch_minutes"], 5)
+        self.assertEqual(config["watch_interval_seconds"], 30)
+
     def test_calculates_seconds_until_window_end(self):
         now = datetime(2026, 5, 16, 7, 30, tzinfo=timezone.utc)
 

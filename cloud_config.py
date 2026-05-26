@@ -4,6 +4,8 @@ from datetime import datetime, timezone, timedelta
 
 REQUIRED_ENV = ("BJMF_CLASS_ID", "BJMF_LAT", "BJMF_LNG", "BJMF_ACC", "BJMF_COOKIE")
 CHINA_TZ = timezone(timedelta(hours=8))
+MIN_AUTOSUBMIT_WATCH_MINUTES = 5
+MAX_AUTOSUBMIT_WATCH_INTERVAL_SECONDS = 30
 
 
 def _required(name):
@@ -16,6 +18,14 @@ def _required(name):
 def load_cloud_config():
     cookie_value = _required("BJMF_COOKIE")
     cookies = [line.strip() for line in cookie_value.splitlines() if line.strip()]
+    autosubmit = os.environ.get("BJMF_AUTOSUBMIT", "").lower() == "true"
+    watch_minutes = int(os.environ.get("BJMF_WATCH_MINUTES", "0") or "0")
+    watch_interval_seconds = int(os.environ.get("BJMF_WATCH_INTERVAL_SECONDS", "300") or "300")
+
+    if autosubmit and watch_minutes > 0:
+        watch_minutes = max(watch_minutes, MIN_AUTOSUBMIT_WATCH_MINUTES)
+        if watch_interval_seconds <= 0 or watch_interval_seconds > MAX_AUTOSUBMIT_WATCH_INTERVAL_SECONDS:
+            watch_interval_seconds = MAX_AUTOSUBMIT_WATCH_INTERVAL_SECONDS
 
     return {
         "class": _required("BJMF_CLASS_ID"),
@@ -25,9 +35,9 @@ def load_cloud_config():
         "cookie": cookies,
         "pushplus": os.environ.get("PUSHPLUS_TOKEN", "").strip(),
         "debug": os.environ.get("BJMF_DEBUG", "").lower() == "true",
-        "autosubmit": os.environ.get("BJMF_AUTOSUBMIT", "").lower() == "true",
-        "watch_minutes": int(os.environ.get("BJMF_WATCH_MINUTES", "0") or "0"),
-        "watch_interval_seconds": int(os.environ.get("BJMF_WATCH_INTERVAL_SECONDS", "300") or "300"),
+        "autosubmit": autosubmit,
+        "watch_minutes": watch_minutes,
+        "watch_interval_seconds": watch_interval_seconds,
         "watch_until_window_end": os.environ.get("BJMF_WATCH_UNTIL_WINDOW_END", "").lower() == "true",
     }
 
