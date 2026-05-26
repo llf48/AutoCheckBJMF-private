@@ -12,6 +12,21 @@ from bs4 import BeautifulSoup
 
 
 REMEMBER_COOKIE_PATTERN = r"remember_student_59ba36addc2b2f9401580f014c7f58ea4e30989d=[^;]+"
+PUNCH_PAGE_SUFFIXES = ("/punchs?op=ing", "/punchs")
+ACTIVE_MARKERS = (
+    "\u70b9\u51fb\u53bb\u5b8c\u6210\u7b7e\u5230",
+    "\u5b8c\u6210\u7b7e\u5230",
+    "\u7acb\u5373\u7b7e\u5230",
+    "\u6b63\u5728\u8fdb\u884c",
+    "\u786e\u5b9a",
+    "鐐规",
+    "绛惧埌",
+    "姝ｅ湪",
+    "瀹屾垚",
+    "绔嬪嵆",
+)
+SIGNED_MARKERS = ("\u5df2\u7b7e\u5230", "\u5df2\u7b7e", "signed", "宸茬")
+ERROR_TITLE_MARKERS = ("\u51fa\u9519", "\u9519\u8bef", "鍑洪敊")
 
 
 def modify_decimal_part(num):
@@ -124,6 +139,60 @@ def raise_if_unparsed_active_task(html, gps_ids, scan_ids):
         raise RuntimeError("Active punch task is visible, but cloud_check could not parse its punch id.")
 
 
+def contains_any(text, markers):
+    return any(marker in text for marker in markers)
+
+
+def get_page_title(html):
+    title_tag = BeautifulSoup(html, "html.parser").find("title")
+    return title_tag.text.strip() if title_tag and title_tag.text else ""
+
+
+def has_signed_status(html):
+    return contains_any(get_visible_text(html), SIGNED_MARKERS)
+
+
+def has_active_task_marker(html):
+    return contains_any(get_visible_text(html), ACTIVE_MARKERS)
+
+
+def raise_if_login_abnormal(response):
+    title = get_page_title(response.text)
+    if contains_any(title, ERROR_TITLE_MARKERS):
+        raise RuntimeError("Login status is abnormal. BJMF_COOKIE may have expired.")
+    if "/login" in response.url.lower():
+        raise RuntimeError("Request was redirected to login. BJMF_COOKIE may have expired.")
+
+
+def raise_if_unparsed_active_task(html, gps_ids, scan_ids):
+    if gps_ids or scan_ids or has_signed_status(html):
+        return
+    if has_active_task_marker(html):
+        raise RuntimeError("Active punch task is visible, but cloud_check could not parse its punch id.")
+
+
+def print_page_diagnostics(label, response, class_id):
+    gps_ids, scan_ids = extract_punch_ids(response.text)
+    submit_urls = extract_submit_urls(response.text, class_id)
+    course_ids = _unique(re.findall(r"(?:course/|course_id=)(\d+)", response.text))
+    print(
+        "Page diagnostics:",
+        {
+            "page": label,
+            "status": response.status_code,
+            "final_url": response.url,
+            "title": get_page_title(response.text),
+            "html_bytes": len(response.text.encode("utf-8", errors="ignore")),
+            "active_marker": has_active_task_marker(response.text),
+            "signed_marker": has_signed_status(response.text),
+            "gps_ids": gps_ids,
+            "scan_ids": scan_ids,
+            "submit_url_count": len(submit_urls),
+            "course_ids_seen": course_ids[:10],
+        },
+    )
+
+
 def resolve_submit_url(candidate_url, headers):
     if not candidate_url:
         return None
@@ -156,6 +225,60 @@ def check_one_cookie(config, cookie):
     gps_ids, scan_ids = extract_punch_ids(response.text)
     submit_urls = extract_submit_urls(response.text, class_id)
     raise_if_unparsed_active_task(response.text, gps_ids, scan_ids)
+    punch_ids = _unique(gps_ids + scan_ids)
+    print("Checked at China time:", datetime.now(CHINA_TZ).isoformat(timespec="seconds"))
+    print("Found GPS punch ids:", gps_ids)
+    print("Found scan punch ids:", scan_ids)
+    print("Found submit urls:", submit_urls)
+
+    if punch_ids and not config.get("autosubmit", False):
+        print("BJMF_AUTOSUBMIT is not true. Dry run only; no punch request was submitted.")
+        return len(punch_ids)
+
+    for punch_id in punch_ids:
+        punch_url = submit_urls.get(
+            punch_id,
+            "https://k8n.cn/student/punchs/course/" + class_id + "/" + punch_id,
+        )
+        punch_url = resolve_submit_url(punch_url, headers) or punch_url
+        payload = {
+            "id": punch_id,
+            "lat": modify_decimal_part(config["lat"]),
+            "lng": modify_decimal_part(config["lng"]),
+            "acc": config["acc"],
+            "res": "",
+            "gps_addr": "",
+        }
+        punch_response = requests.post(punch_url, headers=headers, data=payload, timeout=30)
+        punch_response.raise_for_status()
+        result_soup = BeautifulSoup(punch_response.text, "html.parser")
+        result_title = result_soup.find("div", id="title")
+        print(result_title.text.strip() if result_title else "Punch request sent.")
+
+    if punch_ids and not verify_signed(class_id, headers):
+        raise RuntimeError("Punch request finished, but follow-up check did not show a signed status.")
+
+    return len(punch_ids)
+
+
+def check_one_cookie(config, cookie):
+    class_id = config["class"]
+    headers = get_headers(class_id, cookie)
+
+    responses = []
+    for suffix in PUNCH_PAGE_SUFFIXES:
+        url = "https://k8n.cn/student/course/" + class_id + suffix
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        raise_if_login_abnormal(response)
+        responses.append((suffix, response))
+        print_page_diagnostics(suffix, response, class_id)
+
+    combined_html = "\n".join(response.text for _, response in responses)
+    gps_ids, scan_ids = extract_punch_ids(combined_html)
+    submit_urls = extract_submit_urls(combined_html, class_id)
+    for _, response in responses:
+        raise_if_unparsed_active_task(response.text, gps_ids, scan_ids)
     punch_ids = _unique(gps_ids + scan_ids)
     print("Checked at China time:", datetime.now(CHINA_TZ).isoformat(timespec="seconds"))
     print("Found GPS punch ids:", gps_ids)
