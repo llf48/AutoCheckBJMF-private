@@ -9,11 +9,11 @@ on:
       watch_minutes:
         description: "How many minutes this run should watch for punch tasks"
         required: false
-        default: "4"
+        default: "5"
       watch_interval_seconds:
         description: "Seconds between checks while watching"
         required: false
-        default: "60"
+        default: "30"
   schedule:
     # GitHub cron uses UTC and scheduled events can be delayed or dropped.
     # Use off-peak minute offsets and redundant 5-minute starts across
@@ -53,8 +53,8 @@ jobs:
           BJMF_ACC: "30"
           BJMF_COOKIE: ${{ secrets.BJMF_COOKIE }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
-          BJMF_WATCH_MINUTES: ${{ github.event.inputs.watch_minutes || '4' }}
-          BJMF_WATCH_INTERVAL_SECONDS: ${{ github.event.inputs.watch_interval_seconds || '60' }}
+          BJMF_WATCH_MINUTES: ${{ github.event.inputs.watch_minutes || '5' }}
+          BJMF_WATCH_INTERVAL_SECONDS: ${{ github.event.inputs.watch_interval_seconds || '30' }}
           BJMF_WATCH_UNTIL_WINDOW_END: "false"
           BJMF_AUTOSUBMIT: "true"
         run: python cloud_check.py

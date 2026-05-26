@@ -6,7 +6,7 @@ Why this exists:
 
 - GitHub Actions `schedule` can be delayed or skipped.
 - `cron-job.org` can call `workflow_dispatch` every 5 minutes as a second trigger source.
-- Each run watches for 4 minutes and checks every 60 seconds.
+- Each run watches for 5 minutes and checks every 30 seconds.
 
 ## 1. Create a GitHub token
 
@@ -54,8 +54,8 @@ Body:
 {
   "ref": "main",
   "inputs": {
-    "watch_minutes": "4",
-    "watch_interval_seconds": "60"
+    "watch_minutes": "5",
+    "watch_interval_seconds": "30"
   }
 }
 ```
@@ -88,4 +88,3 @@ Found GPS punch ids: ['...']
 签到成功
 Found and submitted 1 punch task(s). Ending watch.
 ```
-

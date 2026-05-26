@@ -236,11 +236,13 @@ def run_watch():
         if total_found:
             print("Found and submitted %d punch task(s). Ending watch." % total_found)
             return
-        if time.time() + interval > deadline:
+        remaining_seconds = deadline - time.time()
+        if remaining_seconds <= 0:
             print("Watch window ended without active punch tasks.")
             return
-        print("No active punch task. Sleeping %d seconds." % interval)
-        time.sleep(interval)
+        sleep_seconds = min(interval, remaining_seconds)
+        print("No active punch task. Sleeping %d seconds." % int(sleep_seconds))
+        time.sleep(sleep_seconds)
 
 
 if __name__ == "__main__":
