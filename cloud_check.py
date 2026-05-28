@@ -119,6 +119,70 @@ def extract_form_submit_url(html, page_url):
     return urljoin(page_url, form.get("action") or page_url)
 
 
+def extract_punch_id_from_url(url):
+    patterns = (
+        r"/student/punch[sw]/course/\d+/(\d+)",
+        r"[?&]punch_id=(\d+)",
+        r"[?&]id=(\d+)",
+    )
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
+
+
+def parse_notice_end_time(notice_text, now_china=None):
+    if not notice_text:
+        return None
+    now_china = now_china or datetime.now(CHINA_TZ)
+    patterns = (
+        r"(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*结束",
+        r"(\d{1,2})月(\d{1,2})日\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*结束",
+    )
+    match = re.search(patterns[0], notice_text)
+    if match:
+        year, month, day, hour, minute, second = match.groups()
+        return datetime(
+            int(year),
+            int(month),
+            int(day),
+            int(hour),
+            int(minute),
+            int(second or 0),
+            tzinfo=CHINA_TZ,
+        )
+    match = re.search(patterns[1], notice_text)
+    if match:
+        month, day, hour, minute, second = match.groups()
+        return datetime(
+            now_china.year,
+            int(month),
+            int(day),
+            int(hour),
+            int(minute),
+            int(second or 0),
+            tzinfo=CHINA_TZ,
+        )
+    return None
+
+
+def should_run_for_notice(config, now_china=None):
+    notice_text = config.get("notice_text", "")
+    if not notice_text:
+        return True
+    now_china = now_china or datetime.now(CHINA_TZ)
+    end_time = parse_notice_end_time(notice_text, now_china)
+    if not end_time:
+        print("BJMF_NOTICE_TEXT did not contain a recognizable end time. Running one check.")
+        return True
+    print("Notice punch window ends at:", end_time.isoformat(timespec="seconds"))
+    if now_china > end_time:
+        print("Notice punch window has already ended. Skipping network check.")
+        return False
+    return True
+
+
 def get_visible_text(html):
     soup = BeautifulSoup(html, "html.parser")
     for tag in soup(["script", "style", "noscript"]):
@@ -216,6 +280,55 @@ def verify_signed(class_id, headers):
     return False
 
 
+def post_punch(config, headers, punch_id, punch_url):
+    punch_url = resolve_submit_url(punch_url, headers) or punch_url
+    payload = {
+        "id": punch_id,
+        "lat": modify_decimal_part(config["lat"]),
+        "lng": modify_decimal_part(config["lng"]),
+        "acc": config["acc"],
+        "res": "",
+        "gps_addr": "",
+    }
+    punch_response = requests.post(punch_url, headers=headers, data=payload, timeout=30)
+    punch_response.raise_for_status()
+    result_soup = BeautifulSoup(punch_response.text, "html.parser")
+    result_title = result_soup.find("div", id="title")
+    print(result_title.text.strip() if result_title else "Punch request sent.")
+
+
+def check_direct_punch_url(config, cookie):
+    class_id = config["class"]
+    headers = get_headers(class_id, cookie)
+    direct_url = urljoin("https://k8n.cn", config["direct_punch_url"])
+    response = requests.get(direct_url, headers=headers, timeout=30)
+    response.raise_for_status()
+    raise_if_login_abnormal(response)
+    print_page_diagnostics("direct_punch_url", response, class_id)
+    if has_cooldown_marker(response.text):
+        print("Direct punch URL returned a cooldown page. Not submitting.")
+        return 0
+
+    punch_id = extract_punch_id_from_url(response.url) or extract_punch_id_from_url(direct_url)
+    if not punch_id:
+        gps_ids, scan_ids = extract_punch_ids(response.text)
+        punch_ids = _unique(gps_ids + scan_ids)
+        punch_id = punch_ids[0] if len(punch_ids) == 1 else None
+    if not punch_id:
+        raise RuntimeError("Direct punch URL did not expose a unique punch id.")
+
+    submit_url = extract_form_submit_url(response.text, response.url) or direct_url
+    print("Using direct punch url:", response.url)
+    print("Direct punch id:", punch_id)
+    if not config.get("autosubmit", False):
+        print("BJMF_AUTOSUBMIT is not true. Dry run only; no punch request was submitted.")
+        return 1
+    post_punch(config, headers, punch_id, submit_url)
+    if not verify_signed(class_id, headers):
+        raise RuntimeError("Punch request finished, but follow-up check did not show a signed status.")
+    return 1
+
+
 def check_one_cookie(config, cookie):
     class_id = config["class"]
     url = "https://k8n.cn/student/course/" + class_id + "/punchs"
@@ -271,6 +384,9 @@ def check_one_cookie(config, cookie):
     class_id = config["class"]
     headers = get_headers(class_id, cookie)
 
+    if config.get("direct_punch_url"):
+        return check_direct_punch_url(config, cookie)
+
     responses = []
     for suffix in PUNCH_PAGE_SUFFIXES:
         url = "https://k8n.cn/student/course/" + class_id + suffix
@@ -300,20 +416,7 @@ def check_one_cookie(config, cookie):
             punch_id,
             "https://k8n.cn/student/punchs/course/" + class_id + "/" + punch_id,
         )
-        punch_url = resolve_submit_url(punch_url, headers) or punch_url
-        payload = {
-            "id": punch_id,
-            "lat": modify_decimal_part(config["lat"]),
-            "lng": modify_decimal_part(config["lng"]),
-            "acc": config["acc"],
-            "res": "",
-            "gps_addr": "",
-        }
-        punch_response = requests.post(punch_url, headers=headers, data=payload, timeout=30)
-        punch_response.raise_for_status()
-        result_soup = BeautifulSoup(punch_response.text, "html.parser")
-        result_title = result_soup.find("div", id="title")
-        print(result_title.text.strip() if result_title else "Punch request sent.")
+        post_punch(config, headers, punch_id, punch_url)
 
     if punch_ids and not verify_signed(class_id, headers):
         raise RuntimeError("Punch request finished, but follow-up check did not show a signed status.")
@@ -322,11 +425,14 @@ def check_one_cookie(config, cookie):
 
 
 def run_once():
-    if not is_inside_china_time_window():
+    config = load_cloud_config()
+    has_manual_trigger = config.get("force_check") or config.get("notice_text") or config.get("direct_punch_url")
+    if not is_inside_china_time_window() and not has_manual_trigger:
         print("Outside 07:50-18:00 China time window. Skipping.")
         return
+    if not should_run_for_notice(config):
+        return 0
 
-    config = load_cloud_config()
     total_found = 0
     for cookie in config["cookie"]:
         total_found += check_one_cookie(config, cookie)
@@ -335,7 +441,8 @@ def run_once():
 
 def run_watch():
     config = load_cloud_config()
-    if config.get("paused"):
+    has_manual_trigger = config.get("force_check") or config.get("notice_text") or config.get("direct_punch_url")
+    if config.get("paused") and not has_manual_trigger:
         print("BJMF_PAUSED is true. Skipping network check.")
         return
 

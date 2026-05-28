@@ -41,6 +41,9 @@ def load_cloud_config():
         "watch_until_window_end": os.environ.get("BJMF_WATCH_UNTIL_WINDOW_END", "").lower() == "true",
         "paused": os.environ.get("BJMF_PAUSED", "").lower() == "true",
         "safe_single_check": os.environ.get("BJMF_SAFE_SINGLE_CHECK", "true").lower() == "true",
+        "force_check": os.environ.get("BJMF_FORCE_CHECK", "").lower() == "true",
+        "notice_text": os.environ.get("BJMF_NOTICE_TEXT", "").strip(),
+        "direct_punch_url": os.environ.get("BJMF_DIRECT_PUNCH_URL", "").strip(),
     }
 
 

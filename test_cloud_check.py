@@ -1,13 +1,18 @@
 import unittest
+from datetime import datetime
 
 from cloud_check import extract_form_submit_url
+from cloud_check import extract_punch_id_from_url
 from cloud_check import extract_gps_submit_urls
 from cloud_check import extract_punch_ids
 from cloud_check import extract_submit_urls
 from cloud_check import find_remember_cookie
 from cloud_check import has_cooldown_marker
 from cloud_check import has_signed_status
+from cloud_check import parse_notice_end_time
 from cloud_check import raise_if_unparsed_active_task
+from cloud_check import should_run_for_notice
+from cloud_config import CHINA_TZ
 
 
 class CloudCheckParsingTests(unittest.TestCase):
@@ -15,6 +20,24 @@ class CloudCheckParsingTests(unittest.TestCase):
         cookie = "s=ignored; remember_student_abc123=student%7Ctoken; other=x"
 
         self.assertEqual(find_remember_cookie(cookie), "remember_student_abc123=student%7Ctoken")
+
+    def test_extracts_punch_id_from_direct_url(self):
+        url = "https://k8n.cn/student/punchw/course/96755/5228732?sid=3170461"
+
+        self.assertEqual(extract_punch_id_from_url(url), "5228732")
+
+    def test_parses_wechat_notice_end_time(self):
+        notice = "GPS考勤考勤2026-05-28 08:24:53结束，我还未签"
+
+        end_time = parse_notice_end_time(notice)
+
+        self.assertEqual(end_time, datetime(2026, 5, 28, 8, 24, 53, tzinfo=CHINA_TZ))
+
+    def test_skips_expired_notice_window(self):
+        config = {"notice_text": "GPS考勤考勤2026-05-28 08:24:53结束，我还未签"}
+        now_china = datetime(2026, 5, 28, 8, 30, tzinfo=CHINA_TZ)
+
+        self.assertFalse(should_run_for_notice(config, now_china))
 
     def test_extracts_new_gps_launch_path_punch_id(self):
         html = '''

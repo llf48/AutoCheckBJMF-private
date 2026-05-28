@@ -142,6 +142,25 @@ class CloudConfigTests(unittest.TestCase):
         self.assertTrue(config["paused"])
         self.assertFalse(config["safe_single_check"])
 
+    def test_loads_manual_notice_trigger_fields(self):
+        env = {
+            "BJMF_CLASS_ID": "96755",
+            "BJMF_LAT": "23.185647",
+            "BJMF_LNG": "113.33389",
+            "BJMF_ACC": "30",
+            "BJMF_COOKIE": "remember_student_example=value",
+            "BJMF_FORCE_CHECK": "true",
+            "BJMF_NOTICE_TEXT": "GPS考勤考勤2026-05-28 08:24:53结束，我还未签",
+            "BJMF_DIRECT_PUNCH_URL": "https://k8n.cn/student/punchw/course/96755/5228732",
+        }
+
+        with patch.dict(os.environ, env, clear=True):
+            config = load_cloud_config()
+
+        self.assertTrue(config["force_check"])
+        self.assertEqual(config["notice_text"], "GPS考勤考勤2026-05-28 08:24:53结束，我还未签")
+        self.assertEqual(config["direct_punch_url"], "https://k8n.cn/student/punchw/course/96755/5228732")
+
 
 if __name__ == "__main__":
     unittest.main()
