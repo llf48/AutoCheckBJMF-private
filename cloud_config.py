@@ -39,6 +39,8 @@ def load_cloud_config():
         "watch_minutes": watch_minutes,
         "watch_interval_seconds": watch_interval_seconds,
         "watch_until_window_end": os.environ.get("BJMF_WATCH_UNTIL_WINDOW_END", "").lower() == "true",
+        "paused": os.environ.get("BJMF_PAUSED", "").lower() == "true",
+        "safe_single_check": os.environ.get("BJMF_SAFE_SINGLE_CHECK", "true").lower() == "true",
     }
 
 

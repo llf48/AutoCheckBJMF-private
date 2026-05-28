@@ -329,6 +329,14 @@ def run_once():
 
 def run_watch():
     config = load_cloud_config()
+    if config.get("paused"):
+        print("BJMF_PAUSED is true. Skipping network check.")
+        return
+
+    if config.get("safe_single_check"):
+        print("BJMF_SAFE_SINGLE_CHECK is true. Running one low-frequency check only.")
+        return run_once()
+
     watch_minutes = config["watch_minutes"]
     if watch_minutes <= 0:
         return run_once()

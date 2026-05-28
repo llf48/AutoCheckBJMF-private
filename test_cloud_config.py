@@ -125,6 +125,23 @@ class CloudConfigTests(unittest.TestCase):
 
         self.assertTrue(config["autosubmit"])
 
+    def test_loads_pause_and_safe_single_check_flags(self):
+        env = {
+            "BJMF_CLASS_ID": "96755",
+            "BJMF_LAT": "23.185647",
+            "BJMF_LNG": "113.33389",
+            "BJMF_ACC": "30",
+            "BJMF_COOKIE": "remember_student_example=value",
+            "BJMF_PAUSED": "true",
+            "BJMF_SAFE_SINGLE_CHECK": "false",
+        }
+
+        with patch.dict(os.environ, env, clear=True):
+            config = load_cloud_config()
+
+        self.assertTrue(config["paused"])
+        self.assertFalse(config["safe_single_check"])
+
 
 if __name__ == "__main__":
     unittest.main()
