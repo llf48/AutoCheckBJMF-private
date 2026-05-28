@@ -4,12 +4,18 @@ from cloud_check import extract_form_submit_url
 from cloud_check import extract_gps_submit_urls
 from cloud_check import extract_punch_ids
 from cloud_check import extract_submit_urls
+from cloud_check import find_remember_cookie
 from cloud_check import has_cooldown_marker
 from cloud_check import has_signed_status
 from cloud_check import raise_if_unparsed_active_task
 
 
 class CloudCheckParsingTests(unittest.TestCase):
+    def test_accepts_any_remember_student_cookie_name(self):
+        cookie = "s=ignored; remember_student_abc123=student%7Ctoken; other=x"
+
+        self.assertEqual(find_remember_cookie(cookie), "remember_student_abc123=student%7Ctoken")
+
     def test_extracts_new_gps_launch_path_punch_id(self):
         html = '''
             <wx-open-launch-weapp

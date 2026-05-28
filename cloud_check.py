@@ -11,7 +11,7 @@ import requests
 from bs4 import BeautifulSoup
 
 
-REMEMBER_COOKIE_PATTERN = r"remember_student_59ba36addc2b2f9401580f014c7f58ea4e30989d=[^;]+"
+REMEMBER_COOKIE_PATTERN = r"remember_student_[A-Za-z0-9_]+=[^;\s]+"
 PUNCH_PAGE_SUFFIXES = ("/punchs?op=ing",)
 ACTIVE_MARKERS = (
     "\u70b9\u51fb\u53bb\u5b8c\u6210\u7b7e\u5230",
