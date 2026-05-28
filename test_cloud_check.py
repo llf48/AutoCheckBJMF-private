@@ -4,6 +4,7 @@ from cloud_check import extract_form_submit_url
 from cloud_check import extract_gps_submit_urls
 from cloud_check import extract_punch_ids
 from cloud_check import extract_submit_urls
+from cloud_check import has_cooldown_marker
 from cloud_check import has_signed_status
 from cloud_check import raise_if_unparsed_active_task
 
@@ -82,6 +83,11 @@ class CloudCheckParsingTests(unittest.TestCase):
         html = "<div>GPS</div><div>14:29 signed</div><div>已签到</div>"
 
         self.assertTrue(has_signed_status(html))
+
+    def test_detects_cooldown_page(self):
+        html = "<body>4168分钟完全后再访问该页面，冷却前访问一次会增加1分钟等待时间</body>"
+
+        self.assertTrue(has_cooldown_marker(html))
 
     def test_raises_when_active_punch_button_is_visible_but_unparsed(self):
         html = "<div>正在进行</div><a>点此去完成签到</a>"

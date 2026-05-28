@@ -57,6 +57,6 @@ jobs:
           BJMF_WATCH_INTERVAL_SECONDS: ${{ github.event.inputs.watch_interval_seconds || '30' }}
           BJMF_WATCH_UNTIL_WINDOW_END: "false"
           BJMF_AUTOSUBMIT: "true"
-          BJMF_PAUSED: "true"
+          BJMF_PAUSED: "false"
           BJMF_SAFE_SINGLE_CHECK: "true"
         run: python cloud_check.py

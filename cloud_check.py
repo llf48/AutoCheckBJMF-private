@@ -12,7 +12,7 @@ from bs4 import BeautifulSoup
 
 
 REMEMBER_COOKIE_PATTERN = r"remember_student_59ba36addc2b2f9401580f014c7f58ea4e30989d=[^;]+"
-PUNCH_PAGE_SUFFIXES = ("/punchs?op=ing", "/punchs")
+PUNCH_PAGE_SUFFIXES = ("/punchs?op=ing",)
 ACTIVE_MARKERS = (
     "\u70b9\u51fb\u53bb\u5b8c\u6210\u7b7e\u5230",
     "\u5b8c\u6210\u7b7e\u5230",
@@ -26,6 +26,7 @@ ACTIVE_MARKERS = (
     "绔嬪嵆",
 )
 SIGNED_MARKERS = ("\u5df2\u7b7e\u5230", "\u5df2\u7b7e", "signed", "宸茬")
+COOLDOWN_MARKERS = ("\u51b7\u5374", "\u7b49\u5f85\u65f6\u95f4", "\u5206\u949f\u5b8c\u5168\u540e\u518d\u8bbf\u95ee")
 ERROR_TITLE_MARKERS = ("\u51fa\u9519", "\u9519\u8bef", "鍑洪敊")
 
 
@@ -156,6 +157,10 @@ def has_active_task_marker(html):
     return contains_any(get_visible_text(html), ACTIVE_MARKERS)
 
 
+def has_cooldown_marker(html):
+    return contains_any(get_visible_text(html), COOLDOWN_MARKERS)
+
+
 def raise_if_login_abnormal(response):
     title = get_page_title(response.text)
     if contains_any(title, ERROR_TITLE_MARKERS):
@@ -185,6 +190,7 @@ def print_page_diagnostics(label, response, class_id):
             "html_bytes": len(response.text.encode("utf-8", errors="ignore")),
             "active_marker": has_active_task_marker(response.text),
             "signed_marker": has_signed_status(response.text),
+            "cooldown_marker": has_cooldown_marker(response.text),
             "gps_ids": gps_ids,
             "scan_ids": scan_ids,
             "submit_url_count": len(submit_urls),
