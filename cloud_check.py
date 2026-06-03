@@ -15,15 +15,9 @@ REMEMBER_COOKIE_PATTERN = r"remember_student_[A-Za-z0-9_]+=[^;\s]+"
 PUNCH_PAGE_SUFFIXES = ("/punchs?op=ing",)
 ACTIVE_MARKERS = (
     "\u70b9\u51fb\u53bb\u5b8c\u6210\u7b7e\u5230",
+    "\u70b9\u6b64\u53bb\u5b8c\u6210\u7b7e\u5230",
     "\u5b8c\u6210\u7b7e\u5230",
     "\u7acb\u5373\u7b7e\u5230",
-    "\u6b63\u5728\u8fdb\u884c",
-    "\u786e\u5b9a",
-    "鐐规",
-    "绛惧埌",
-    "姝ｅ湪",
-    "瀹屾垚",
-    "绔嬪嵆",
 )
 SIGNED_MARKERS = ("\u5df2\u7b7e\u5230", "\u5df2\u7b7e", "signed", "宸茬")
 COOLDOWN_MARKERS = ("\u51b7\u5374", "\u7b49\u5f85\u65f6\u95f4", "\u5206\u949f\u5b8c\u5168\u540e\u518d\u8bbf\u95ee")

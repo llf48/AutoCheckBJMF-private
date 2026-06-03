@@ -7,6 +7,7 @@ from cloud_check import extract_gps_submit_urls
 from cloud_check import extract_punch_ids
 from cloud_check import extract_submit_urls
 from cloud_check import find_remember_cookie
+from cloud_check import has_active_task_marker
 from cloud_check import has_cooldown_marker
 from cloud_check import has_signed_status
 from cloud_check import parse_notice_end_time
@@ -123,6 +124,19 @@ class CloudCheckParsingTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "could not parse"):
             raise_if_unparsed_active_task(html, [], [])
+
+    def test_click_to_complete_text_still_counts_as_active_punch(self):
+        html = "<div>\u70b9\u6b64\u53bb\u5b8c\u6210\u7b7e\u5230</div>"
+
+        self.assertTrue(has_active_task_marker(html))
+        with self.assertRaisesRegex(RuntimeError, "could not parse"):
+            raise_if_unparsed_active_task(html, [], [])
+
+    def test_generic_page_words_do_not_count_as_active_punch(self):
+        html = "<div>\u6b63\u5728\u8fdb\u884c</div><button>\u786e\u5b9a</button>"
+
+        self.assertFalse(has_active_task_marker(html))
+        raise_if_unparsed_active_task(html, [], [])
 
 
 if __name__ == "__main__":
