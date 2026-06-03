@@ -79,6 +79,7 @@ jobs:
           BJMF_PAUSED: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force_check != 'true' && github.event.inputs.notice_text == '' && github.event.inputs.direct_punch_url == '' }}
           BJMF_SAFE_SINGLE_CHECK: "true"
           BJMF_FORCE_CHECK: ${{ github.event.inputs.force_check || 'false' }}
+          BJMF_CLASS_WINDOW_GATE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force_check != 'true' && github.event.inputs.notice_text == '' && github.event.inputs.direct_punch_url == '' }}
           BJMF_NOTICE_TEXT: ${{ github.event.inputs.notice_text || '' }}
           BJMF_DIRECT_PUNCH_URL: ${{ github.event.inputs.direct_punch_url || '' }}
         run: python cloud_check.py

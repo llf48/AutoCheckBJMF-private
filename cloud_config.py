@@ -6,6 +6,11 @@ REQUIRED_ENV = ("BJMF_CLASS_ID", "BJMF_LAT", "BJMF_LNG", "BJMF_ACC", "BJMF_COOKI
 CHINA_TZ = timezone(timedelta(hours=8))
 MIN_AUTOSUBMIT_WATCH_MINUTES = 5
 MAX_AUTOSUBMIT_WATCH_INTERVAL_SECONDS = 30
+CLASS_WINDOWS = (("08:00", "12:00"), ("14:30", "17:40"))
+CLASS_CYCLE_MINUTES = 45
+CLASS_DURATION_MINUTES = 40
+CLASS_CHECK_MINUTES = (0, 10, 20, 30)
+CLASS_CHECK_TOLERANCE_SECONDS = 150
 
 
 def _required(name):
@@ -42,9 +47,38 @@ def load_cloud_config():
         "paused": os.environ.get("BJMF_PAUSED", "").lower() == "true",
         "safe_single_check": os.environ.get("BJMF_SAFE_SINGLE_CHECK", "true").lower() == "true",
         "force_check": os.environ.get("BJMF_FORCE_CHECK", "").lower() == "true",
+        "class_window_gate": os.environ.get("BJMF_CLASS_WINDOW_GATE", "").lower() == "true",
         "notice_text": os.environ.get("BJMF_NOTICE_TEXT", "").strip(),
         "direct_punch_url": os.environ.get("BJMF_DIRECT_PUNCH_URL", "").strip(),
     }
+
+
+def _china_time_on_current_date(now_china, value):
+    hour, minute = [int(part) for part in value.split(":")]
+    return now_china.replace(hour=hour, minute=minute, second=0, microsecond=0)
+
+
+def is_class_cycle_check_time(now_utc=None):
+    now_utc = now_utc or datetime.now(timezone.utc)
+    now_china = now_utc.astimezone(CHINA_TZ)
+    for start, end in CLASS_WINDOWS:
+        start_dt = _china_time_on_current_date(now_china, start)
+        end_dt = _china_time_on_current_date(now_china, end)
+        if not start_dt <= now_china <= end_dt:
+            continue
+
+        elapsed_seconds = int((now_china - start_dt).total_seconds())
+        cycle_seconds = elapsed_seconds % (CLASS_CYCLE_MINUTES * 60)
+        if cycle_seconds >= CLASS_DURATION_MINUTES * 60:
+            return False
+
+        for minute in CLASS_CHECK_MINUTES:
+            slot_seconds = minute * 60
+            delay_seconds = cycle_seconds - slot_seconds
+            if 0 <= delay_seconds <= CLASS_CHECK_TOLERANCE_SECONDS:
+                return True
+        return False
+    return False
 
 
 def is_inside_china_time_window(now_utc=None, start="07:50", end="18:00"):

@@ -3,7 +3,7 @@ import unittest
 from datetime import datetime, timezone
 from unittest.mock import patch
 
-from cloud_config import is_inside_china_time_window, load_cloud_config
+from cloud_config import is_class_cycle_check_time, is_inside_china_time_window, load_cloud_config
 from cloud_config import seconds_until_china_time_window_end
 from cloud_config import seconds_until_china_time_window_start
 
@@ -142,6 +142,37 @@ class CloudConfigTests(unittest.TestCase):
         self.assertTrue(config["paused"])
         self.assertFalse(config["safe_single_check"])
 
+    def test_loads_class_window_gate_flag(self):
+        env = {
+            "BJMF_CLASS_ID": "96755",
+            "BJMF_LAT": "23.185647",
+            "BJMF_LNG": "113.33389",
+            "BJMF_ACC": "30",
+            "BJMF_COOKIE": "remember_student_example=value",
+            "BJMF_CLASS_WINDOW_GATE": "true",
+        }
+
+        with patch.dict(os.environ, env, clear=True):
+            config = load_cloud_config()
+
+        self.assertTrue(config["class_window_gate"])
+
+    def test_class_cycle_gate_allows_class_check_minutes(self):
+        morning = datetime(2026, 6, 3, 0, 0, 30, tzinfo=timezone.utc)
+        afternoon = datetime(2026, 6, 3, 8, 0, 30, tzinfo=timezone.utc)
+
+        self.assertTrue(is_class_cycle_check_time(morning))
+        self.assertTrue(is_class_cycle_check_time(afternoon))
+
+    def test_class_cycle_gate_skips_between_check_minutes_and_breaks(self):
+        between_checks = datetime(2026, 6, 3, 8, 5, tzinfo=timezone.utc)
+        break_time = datetime(2026, 6, 3, 8, 41, tzinfo=timezone.utc)
+        outside_class_window = datetime(2026, 6, 3, 10, 1, tzinfo=timezone.utc)
+
+        self.assertFalse(is_class_cycle_check_time(between_checks))
+        self.assertFalse(is_class_cycle_check_time(break_time))
+        self.assertFalse(is_class_cycle_check_time(outside_class_window))
+
     def test_loads_manual_notice_trigger_fields(self):
         env = {
             "BJMF_CLASS_ID": "96755",
@@ -150,7 +181,7 @@ class CloudConfigTests(unittest.TestCase):
             "BJMF_ACC": "30",
             "BJMF_COOKIE": "remember_student_example=value",
             "BJMF_FORCE_CHECK": "true",
-            "BJMF_NOTICE_TEXT": "GPS考勤考勤2026-05-28 08:24:53结束，我还未签",
+            "BJMF_NOTICE_TEXT": "GPS????2026-05-28 08:24:53??,????",
             "BJMF_DIRECT_PUNCH_URL": "https://k8n.cn/student/punchw/course/96755/5228732",
         }
 
@@ -158,7 +189,7 @@ class CloudConfigTests(unittest.TestCase):
             config = load_cloud_config()
 
         self.assertTrue(config["force_check"])
-        self.assertEqual(config["notice_text"], "GPS考勤考勤2026-05-28 08:24:53结束，我还未签")
+        self.assertEqual(config["notice_text"], "GPS????2026-05-28 08:24:53??,????")
         self.assertEqual(config["direct_punch_url"], "https://k8n.cn/student/punchw/course/96755/5228732")
 
 

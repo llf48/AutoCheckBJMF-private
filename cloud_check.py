@@ -1,4 +1,4 @@
-from cloud_config import CHINA_TZ, is_inside_china_time_window, load_cloud_config
+from cloud_config import CHINA_TZ, is_class_cycle_check_time, is_inside_china_time_window, load_cloud_config
 from cloud_config import seconds_until_china_time_window_end
 from cloud_config import seconds_until_china_time_window_start
 import random
@@ -19,15 +19,15 @@ ACTIVE_MARKERS = (
     "\u7acb\u5373\u7b7e\u5230",
     "\u6b63\u5728\u8fdb\u884c",
     "\u786e\u5b9a",
-    "鐐规",
-    "绛惧埌",
-    "姝ｅ湪",
-    "瀹屾垚",
-    "绔嬪嵆",
+    "??",
+    "???",
+    "?e?",
+    "???",
+    "???",
 )
-SIGNED_MARKERS = ("\u5df2\u7b7e\u5230", "\u5df2\u7b7e", "signed", "宸茬")
+SIGNED_MARKERS = ("\u5df2\u7b7e\u5230", "\u5df2\u7b7e", "signed", "??")
 COOLDOWN_MARKERS = ("\u51b7\u5374", "\u7b49\u5f85\u65f6\u95f4", "\u5206\u949f\u5b8c\u5168\u540e\u518d\u8bbf\u95ee")
-ERROR_TITLE_MARKERS = ("\u51fa\u9519", "\u9519\u8bef", "鍑洪敊")
+ERROR_TITLE_MARKERS = ("\u51fa\u9519", "\u9519\u8bef", "???")
 
 
 def modify_decimal_part(num):
@@ -137,8 +137,8 @@ def parse_notice_end_time(notice_text, now_china=None):
         return None
     now_china = now_china or datetime.now(CHINA_TZ)
     patterns = (
-        r"(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*结束",
-        r"(\d{1,2})月(\d{1,2})日\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*结束",
+        r"(\d{4})-(\d{1,2})-(\d{1,2})\s+(\d{1,2}):(\d{2})(?::(\d{2}))?\s*??",
+        r"(\d{1,2})?(\d{1,2})?\s*(\d{1,2}):(\d{2})(?::(\d{2}))?\s*??",
     )
     match = re.search(patterns[0], notice_text)
     if match:
@@ -192,14 +192,14 @@ def get_visible_text(html):
 
 def has_signed_status(html):
     text = get_visible_text(html)
-    return "已签到" in text or "已签" in text
+    return "???" in text or "??" in text
 
 
 def raise_if_unparsed_active_task(html, gps_ids, scan_ids):
     if gps_ids or scan_ids or has_signed_status(html):
         return
     text = get_visible_text(html)
-    active_markers = ("点此去完成签到", "完成签到", "立即签到", "确定")
+    active_markers = ("???????", "????", "????", "??")
     if any(marker in text for marker in active_markers):
         raise RuntimeError("Active punch task is visible, but cloud_check could not parse its punch id.")
 
@@ -338,7 +338,7 @@ def check_one_cookie(config, cookie):
     response.raise_for_status()
     soup = BeautifulSoup(response.text, "html.parser")
     title_tag = soup.find("title")
-    if title_tag and "出错" in title_tag.text:
+    if title_tag and "??" in title_tag.text:
         raise RuntimeError("Login status is abnormal. BJMF_COOKIE may have expired.")
 
     gps_ids, scan_ids = extract_punch_ids(response.text)
@@ -442,9 +442,14 @@ def run_once():
 def run_watch():
     config = load_cloud_config()
     has_manual_trigger = config.get("force_check") or config.get("notice_text") or config.get("direct_punch_url")
-    if config.get("paused") and not has_manual_trigger:
+    if config.get("paused") and not has_manual_trigger and not config.get("class_window_gate"):
         print("BJMF_PAUSED is true. Skipping network check.")
         return
+    if config.get("class_window_gate") and not has_manual_trigger:
+        if not is_class_cycle_check_time():
+            print("BJMF_CLASS_WINDOW_GATE is true, but this is not a class-cycle check minute. Skipping network check.")
+            return
+        print("BJMF_CLASS_WINDOW_GATE allowed this class-cycle check.")
 
     if config.get("safe_single_check"):
         print("BJMF_SAFE_SINGLE_CHECK is true. Running one low-frequency check only.")
