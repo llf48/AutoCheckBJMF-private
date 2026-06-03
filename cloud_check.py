@@ -1,4 +1,4 @@
-from cloud_config import CHINA_TZ, is_inside_china_time_window, load_cloud_config
+from cloud_config import CHINA_TZ, is_class_cycle_check_time, is_inside_china_time_window, load_cloud_config
 from cloud_config import seconds_until_china_time_window_end
 from cloud_config import seconds_until_china_time_window_start
 import random
@@ -442,9 +442,14 @@ def run_once():
 def run_watch():
     config = load_cloud_config()
     has_manual_trigger = config.get("force_check") or config.get("notice_text") or config.get("direct_punch_url")
-    if config.get("paused") and not has_manual_trigger:
+    if config.get("paused") and not has_manual_trigger and not config.get("class_window_gate"):
         print("BJMF_PAUSED is true. Skipping network check.")
         return
+    if config.get("class_window_gate") and not has_manual_trigger:
+        if not is_class_cycle_check_time():
+            print("BJMF_CLASS_WINDOW_GATE is true, but this is not a class-cycle check minute. Skipping network check.")
+            return
+        print("BJMF_CLASS_WINDOW_GATE allowed this class-cycle check.")
 
     if config.get("safe_single_check"):
         print("BJMF_SAFE_SINGLE_CHECK is true. Running one low-frequency check only.")
