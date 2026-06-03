@@ -29,13 +29,17 @@ on:
   schedule:
     # GitHub cron uses UTC. China classes are 08:00-12:00 and 14:30-17:40.
     # Each class is about 40 minutes with a 5-minute break, so checks run at
-    # class start +2/+17/+32 minutes, plus one pre-class checkpoint.
+    # class start +2/+12/+22/+32 minutes, plus pre-class and end-window checkpoints.
     # Keep BJMF_SAFE_SINGLE_CHECK=true; do not restore all-day high-frequency polling.
     - cron: "57 23 * * *"
-    - cron: "2,17,32,47 0-3 * * *"
-    - cron: "27,32,47 6 * * *"
-    - cron: "2,17,32,47 7-8 * * *"
-    - cron: "2,17,32 9 * * *"
+    - cron: "2,12,22,32,47,57 0 * * *"
+    - cron: "7,17,32,42,52 1 * * *"
+    - cron: "2,17,27,37,47 2 * * *"
+    - cron: "2,12,22,32,47,57 3 * * *"
+    - cron: "27,32,42,52 6 * * *"
+    - cron: "2,17,27,37,47 7 * * *"
+    - cron: "2,12,22,32,47,57 8 * * *"
+    - cron: "7,17,32,37 9 * * *"
 
 concurrency:
   group: bjmf-cloud-check
