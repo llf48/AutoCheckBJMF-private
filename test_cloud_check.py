@@ -1,5 +1,6 @@
 import unittest
 from datetime import datetime
+from types import SimpleNamespace
 
 from cloud_check import extract_form_submit_url
 from cloud_check import extract_punch_id_from_url
@@ -12,11 +13,24 @@ from cloud_check import has_cooldown_marker
 from cloud_check import has_signed_status
 from cloud_check import parse_notice_end_time
 from cloud_check import raise_if_unparsed_active_task
+from cloud_check import raise_if_login_abnormal
 from cloud_check import should_run_for_notice
 from cloud_config import CHINA_TZ
 
 
 class CloudCheckParsingTests(unittest.TestCase):
+    def test_detects_url_encoded_wechat_oauth_login_redirect(self):
+        response = SimpleNamespace(
+            text="<html></html>",
+            url=(
+                "https://open.weixin.qq.com/connect/oauth2/authorize?"
+                "redirect_uri=https%3A%2F%2Fk8n.cn%2Flogin%2Fweixin%2Flogin%2Fstudent%2F2"
+            ),
+        )
+
+        with self.assertRaisesRegex(RuntimeError, "login/OAuth"):
+            raise_if_login_abnormal(response)
+
     def test_accepts_any_remember_student_cookie_name(self):
         cookie = "s=ignored; remember_student_abc123=student%7Ctoken; other=x"
 

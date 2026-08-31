@@ -5,7 +5,7 @@ import random
 import re
 import time
 from datetime import datetime
-from urllib.parse import urljoin
+from urllib.parse import unquote, urljoin
 
 import requests
 from bs4 import BeautifulSoup
@@ -223,8 +223,9 @@ def raise_if_login_abnormal(response):
     title = get_page_title(response.text)
     if contains_any(title, ERROR_TITLE_MARKERS):
         raise RuntimeError("Login status is abnormal. BJMF_COOKIE may have expired.")
-    if "/login" in response.url.lower():
-        raise RuntimeError("Request was redirected to login. BJMF_COOKIE may have expired.")
+    decoded_url = unquote(response.url).lower()
+    if "/login" in decoded_url or "open.weixin.qq.com/connect/oauth2/authorize" in decoded_url:
+        raise RuntimeError("Request was redirected to login/OAuth. BJMF_COOKIE may have expired.")
 
 
 def raise_if_unparsed_active_task(html, gps_ids, scan_ids):
