@@ -71,6 +71,7 @@ jobs:
           BJMF_LNG: "113.33389"
           BJMF_ACC: "30"
           BJMF_COOKIE: ${{ secrets.BJMF_COOKIE }}
+          BJMF_COOKIE_2: ${{ secrets.BJMF_COOKIE_2 }}
           PUSHPLUS_TOKEN: ${{ secrets.PUSHPLUS_TOKEN }}
           BJMF_WATCH_MINUTES: ${{ github.event.inputs.watch_minutes || '5' }}
           BJMF_WATCH_INTERVAL_SECONDS: ${{ github.event.inputs.watch_interval_seconds || '30' }}

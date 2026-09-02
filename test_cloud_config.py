@@ -28,6 +28,24 @@ class CloudConfigTests(unittest.TestCase):
         self.assertEqual(config["cookie"], ["remember_student_example=value"])
         self.assertEqual(config["pushplus"], "")
 
+    def test_loads_numbered_cookie_secrets_after_primary_cookie(self):
+        env = {
+            "BJMF_CLASS_ID": "96755",
+            "BJMF_LAT": "23.185647",
+            "BJMF_LNG": "113.33389",
+            "BJMF_ACC": "30",
+            "BJMF_COOKIE": "remember_student_primary=value",
+            "BJMF_COOKIE_2": "remember_student_second=value",
+        }
+
+        with patch.dict(os.environ, env, clear=True):
+            config = load_cloud_config()
+
+        self.assertEqual(
+            config["cookie"],
+            ["remember_student_primary=value", "remember_student_second=value"],
+        )
+
     def test_raises_for_missing_required_secret(self):
         env = {
             "BJMF_CLASS_ID": "96755",

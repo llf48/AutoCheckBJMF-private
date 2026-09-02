@@ -16,10 +16,27 @@ from cloud_check import parse_notice_end_time
 from cloud_check import raise_if_unparsed_active_task
 from cloud_check import raise_if_login_abnormal
 from cloud_check import should_run_for_notice
+from cloud_check import check_all_cookies
 from cloud_config import CHINA_TZ
 
 
 class CloudCheckParsingTests(unittest.TestCase):
+    def test_cookie_batch_continues_after_one_account_fails(self):
+        checked = []
+
+        def checker(config, cookie):
+            checked.append(cookie)
+            if cookie == "expired-cookie":
+                raise RuntimeError("expired")
+            return 2
+
+        config = {"cookie": ["expired-cookie", "working-cookie"]}
+
+        with self.assertRaisesRegex(RuntimeError, "1 of 2 cookie account checks failed"):
+            check_all_cookies(config, checker=checker)
+
+        self.assertEqual(checked, ["expired-cookie", "working-cookie"])
+
     def test_detects_url_encoded_wechat_oauth_login_redirect(self):
         response = SimpleNamespace(
             text="<html></html>",

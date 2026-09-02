@@ -450,6 +450,25 @@ def check_one_cookie(config, cookie):
     return len(punch_ids)
 
 
+def check_all_cookies(config, checker=None):
+    checker = checker or check_one_cookie
+    total_found = 0
+    failures = []
+    cookies = config["cookie"]
+    for account_number, cookie in enumerate(cookies, start=1):
+        try:
+            total_found += checker(config, cookie)
+        except Exception as exc:
+            failures.append(exc)
+            print("Cookie account %d check failed: %s" % (account_number, exc))
+
+    if failures:
+        raise RuntimeError(
+            "%d of %d cookie account checks failed." % (len(failures), len(cookies))
+        )
+    return total_found
+
+
 def run_once():
     config = load_cloud_config()
     has_manual_trigger = config.get("force_check") or config.get("notice_text") or config.get("direct_punch_url")
@@ -459,10 +478,7 @@ def run_once():
     if not should_run_for_notice(config):
         return 0
 
-    total_found = 0
-    for cookie in config["cookie"]:
-        total_found += check_one_cookie(config, cookie)
-    return total_found
+    return check_all_cookies(config)
 
 
 def run_watch():
@@ -505,9 +521,7 @@ def run_watch():
             print("Outside 07:50-18:00 China time window. Stopping watch.")
             return
 
-        total_found = 0
-        for cookie in config["cookie"]:
-            total_found += check_one_cookie(config, cookie)
+        total_found = check_all_cookies(config)
         if total_found:
             print("Found and submitted %d punch task(s). Ending watch." % total_found)
             return

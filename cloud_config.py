@@ -22,7 +22,23 @@ def _required(name):
 
 def load_cloud_config():
     cookie_value = _required("BJMF_COOKIE")
-    cookies = [line.strip() for line in cookie_value.splitlines() if line.strip()]
+    cookie_values = [cookie_value]
+    cookie_prefix = "BJMF_COOKIE_"
+    numbered_cookie_names = sorted(
+        (
+            name
+            for name in os.environ
+            if name.startswith(cookie_prefix) and name[len(cookie_prefix) :].isdigit()
+        ),
+        key=lambda name: int(name[len(cookie_prefix) :]),
+    )
+    cookie_values.extend(os.environ.get(name, "") for name in numbered_cookie_names)
+    cookies = [
+        line.strip()
+        for value in cookie_values
+        for line in value.splitlines()
+        if line.strip()
+    ]
     autosubmit = os.environ.get("BJMF_AUTOSUBMIT", "").lower() == "true"
     watch_minutes = int(os.environ.get("BJMF_WATCH_MINUTES", "0") or "0")
     watch_interval_seconds = int(os.environ.get("BJMF_WATCH_INTERVAL_SECONDS", "300") or "300")
