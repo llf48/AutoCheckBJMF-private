@@ -8,6 +8,7 @@ from cloud_check import extract_gps_submit_urls
 from cloud_check import extract_punch_ids
 from cloud_check import extract_submit_urls
 from cloud_check import find_remember_cookie
+from cloud_check import get_active_structure_hints
 from cloud_check import has_active_task_marker
 from cloud_check import has_cooldown_marker
 from cloud_check import has_signed_status
@@ -78,6 +79,37 @@ class CloudCheckParsingTests(unittest.TestCase):
         self.assertEqual(gps_ids, ["111"])
         self.assertEqual(scan_ids, ["222"])
 
+    def test_extracts_dynamic_scan_id_variants(self):
+        html = '''
+            <button id="punchcard-301">扫码签到</button>
+            <button data-scan-id="302">扫码签到</button>
+            <script>
+                punchcard(303);
+                window.config = {"punchcard_id": "304"};
+            </script>
+        '''
+
+        gps_ids, scan_ids = extract_punch_ids(html)
+
+        self.assertEqual(gps_ids, [])
+        self.assertEqual(scan_ids, ["301", "303", "302", "304"])
+
+    def test_extracts_dynamic_scan_submit_routes(self):
+        html = '''
+            <a href="/student/punchcard/course/96755/401?token=short">scan</a>
+            <form action="/student/punchscan/course/96755/402"></form>
+        '''
+
+        urls = extract_submit_urls(html, "96755")
+
+        self.assertEqual(
+            urls,
+            {
+                "401": "https://k8n.cn/student/punchcard/course/96755/401?token=short",
+                "402": "https://k8n.cn/student/punchscan/course/96755/402",
+            },
+        )
+
     def test_extracts_new_gps_submit_url(self):
         html = '''
             <a id="gps_btn_5228732"
@@ -138,6 +170,23 @@ class CloudCheckParsingTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "could not parse"):
             raise_if_unparsed_active_task(html, [], [])
+
+    def test_structure_hints_redact_dynamic_values(self):
+        html = (
+            '<a class="scan-entry" data-session="abcdefghijklmnopqrstuvwxyz123456" '
+            'href="/student/punchcard/course/96755/987654?token=secret-value">'
+            '点此去完成签到</a>'
+        )
+
+        hints = get_active_structure_hints(html)
+        serialized = repr(hints)
+
+        self.assertIn("scan-entry", serialized)
+        self.assertIn("<n>", serialized)
+        self.assertIn("<value>", serialized)
+        self.assertNotIn("987654", serialized)
+        self.assertNotIn("secret-value", serialized)
+        self.assertNotIn("abcdefghijklmnopqrstuvwxyz123456", serialized)
 
     def test_click_to_complete_text_still_counts_as_active_punch(self):
         html = "<div>\u70b9\u6b64\u53bb\u5b8c\u6210\u7b7e\u5230</div>"

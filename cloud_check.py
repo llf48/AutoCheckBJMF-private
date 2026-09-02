@@ -73,18 +73,27 @@ def extract_punch_ids(html):
     gps_ids.extend(re.findall(r"/student/punchs/course/\d+/(\d+)", html))
     gps_ids.extend(re.findall(r"id=[\"']gps_btn_(\d+)[\"']", html))
 
-    scan_ids = re.findall(r"punchcard_(\d+)", html)
+    scan_ids = []
+    scan_patterns = (
+        r"punchcard[_-](\d+)",
+        r"punchcard\s*\(\s*(\d+)\s*\)",
+        r"(?:scan|scancard|qrcode|qr)[_-](\d+)",
+        r"data-(?:scan|punchcard)-id\s*=\s*[\"']?(\d+)",
+        r"[\"'](?:scan|punchcard)_id[\"']\s*:\s*[\"']?(\d+)",
+    )
+    for pattern in scan_patterns:
+        scan_ids.extend(re.findall(pattern, html, flags=re.IGNORECASE))
     return _unique(gps_ids), _unique(scan_ids)
 
 
 def extract_submit_urls(html, class_id):
     urls = {}
     soup = BeautifulSoup(html, "html.parser")
+    route = r"punch(?:w|s|card|scan)"
     patterns = [
-        r"(https?://k8n\.cn/student/punchw/course/%s/(\d+)[^\"'<>\s]*)" % re.escape(class_id),
-        r"(https?://k8n\.cn/student/punchs/course/%s/(\d+)[^\"'<>\s]*)" % re.escape(class_id),
-        r"(/student/punchw/course/%s/(\d+)[^\"'<>\s]*)" % re.escape(class_id),
-        r"(/student/punchs/course/%s/(\d+)[^\"'<>\s]*)" % re.escape(class_id),
+        r"(https?://k8n\.cn/student/%s/course/%s/(\d+)[^\"'<>\s]*)"
+        % (route, re.escape(class_id)),
+        r"(/student/%s/course/%s/(\d+)[^\"'<>\s]*)" % (route, re.escape(class_id)),
     ]
 
     def add_url(value):
@@ -115,7 +124,7 @@ def extract_form_submit_url(html, page_url):
 
 def extract_punch_id_from_url(url):
     patterns = (
-        r"/student/punch[sw]/course/\d+/(\d+)",
+        r"/student/punch(?:w|s|card|scan)/course/\d+/(\d+)",
         r"[?&]punch_id=(\d+)",
         r"[?&]id=(\d+)",
     )
@@ -184,20 +193,6 @@ def get_visible_text(html):
     return "\n".join(line.strip() for line in soup.get_text("\n", strip=True).splitlines() if line.strip())
 
 
-def has_signed_status(html):
-    text = get_visible_text(html)
-    return "已签到" in text or "已签" in text
-
-
-def raise_if_unparsed_active_task(html, gps_ids, scan_ids):
-    if gps_ids or scan_ids or has_signed_status(html):
-        return
-    text = get_visible_text(html)
-    active_markers = ("点此去完成签到", "完成签到", "立即签到", "确定")
-    if any(marker in text for marker in active_markers):
-        raise RuntimeError("Active punch task is visible, but cloud_check could not parse its punch id.")
-
-
 def contains_any(text, markers):
     return any(marker in text for marker in markers)
 
@@ -228,11 +223,46 @@ def raise_if_login_abnormal(response):
         raise RuntimeError("Request was redirected to login/OAuth. BJMF_COOKIE may have expired.")
 
 
+def _redact_structure_value(value):
+    if isinstance(value, (list, tuple)):
+        value = " ".join(str(item) for item in value)
+    value = str(value)
+    value = re.sub(r"([?&][^=&#\s]+)=([^&#\s]*)", r"\1=<value>", value)
+    value = re.sub(r"\d+", "<n>", value)
+    value = re.sub(r"[A-Za-z0-9_-]{24,}", "<token>", value)
+    return value[:180]
+
+
+def get_active_structure_hints(html, limit=12):
+    soup = BeautifulSoup(html, "html.parser")
+    keywords = ("punch", "scan", "card", "qrcode", "qr", "sign")
+    hints = []
+    for tag in soup.find_all(True):
+        attributes = {
+            str(name): _redact_structure_value(value)
+            for name, value in tag.attrs.items()
+        }
+        attribute_text = " ".join([str(tag.name)] + list(attributes) + list(attributes.values())).lower()
+        visible_text = " ".join(tag.stripped_strings)
+        has_relevant_attribute = any(keyword in attribute_text for keyword in keywords)
+        has_active_text = tag.name not in ("html", "body") and contains_any(visible_text, ACTIVE_MARKERS)
+        if not has_relevant_attribute and not has_active_text:
+            continue
+        hints.append({"tag": tag.name, "attrs": attributes})
+        if len(hints) >= limit:
+            break
+    return hints
+
+
 def raise_if_unparsed_active_task(html, gps_ids, scan_ids):
     if gps_ids or scan_ids or has_signed_status(html):
         return
     if has_active_task_marker(html):
-        raise RuntimeError("Active punch task is visible, but cloud_check could not parse its punch id.")
+        hints = get_active_structure_hints(html)
+        raise RuntimeError(
+            "Active punch task is visible, but cloud_check could not parse its punch id. "
+            "Sanitized structure hints: %r" % hints
+        )
 
 
 def print_page_diagnostics(label, response, class_id):
@@ -254,6 +284,7 @@ def print_page_diagnostics(label, response, class_id):
             "scan_ids": scan_ids,
             "submit_url_count": len(submit_urls),
             "course_ids_seen": course_ids[:10],
+            "structure_hints": get_active_structure_hints(response.text),
         },
     )
 
