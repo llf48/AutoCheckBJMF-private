@@ -66,6 +66,7 @@ def load_cloud_config():
         "class_window_gate": os.environ.get("BJMF_CLASS_WINDOW_GATE", "").lower() == "true",
         "notice_text": os.environ.get("BJMF_NOTICE_TEXT", "").strip(),
         "direct_punch_url": os.environ.get("BJMF_DIRECT_PUNCH_URL", "").strip(),
+        "audit_log_path": os.environ.get("BJMF_AUDIT_LOG", "").strip(),
     }
 
 

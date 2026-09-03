@@ -1,6 +1,7 @@
 from cloud_config import CHINA_TZ, is_class_cycle_check_time, is_inside_china_time_window, load_cloud_config
 from cloud_config import seconds_until_china_time_window_end
 from cloud_config import seconds_until_china_time_window_start
+import json
 import random
 import re
 import time
@@ -42,6 +43,47 @@ def find_remember_cookie(cookie):
     if not result:
         raise RuntimeError("BJMF_COOKIE does not contain the expected remember_student token.")
     return result.group(0)
+
+
+def extract_student_id(cookie):
+    try:
+        remember_cookie = find_remember_cookie(cookie)
+    except RuntimeError:
+        return "unknown"
+    decoded_value = unquote(remember_cookie.split("=", 1)[1])
+    match = re.match(r"(\d+)(?:\||$)", decoded_value)
+    return match.group(1) if match else "unknown"
+
+
+def _sanitize_audit_value(value):
+    if not isinstance(value, str):
+        return value
+    value = value.replace("\r", " ").replace("\n", " ")
+    value = re.sub(REMEMBER_COOKIE_PATTERN, "<redacted-cookie>", value)
+    value = re.sub(r"([?&][^=&#\s]+)=([^&#\s]*)", r"\1=<redacted>", value)
+    value = re.sub(r"[A-Za-z0-9_-]{24,}", "<redacted-token>", value)
+    return value[:200]
+
+
+def write_audit_event(config, event, **fields):
+    record = {
+        "time_china": datetime.now(CHINA_TZ).isoformat(timespec="seconds"),
+        "event": event,
+    }
+    account_number = config.get("_audit_account_number")
+    student_id = config.get("_audit_student_id")
+    if account_number is not None:
+        record["account"] = account_number
+    if student_id:
+        record["student_id"] = student_id
+    record.update({name: _sanitize_audit_value(value) for name, value in fields.items()})
+    serialized = json.dumps(record, ensure_ascii=False, sort_keys=True)
+    print("BJMF_AUDIT " + serialized)
+
+    audit_log_path = config.get("audit_log_path", "")
+    if audit_log_path:
+        with open(audit_log_path, "a", encoding="utf-8") as audit_file:
+            audit_file.write(serialized + "\n")
 
 
 def get_headers(class_id, cookie):
@@ -341,11 +383,20 @@ def post_punch(config, headers, punch_id, punch_url):
         "res": "",
         "gps_addr": "",
     }
+    write_audit_event(config, "post_attempt", punch_id=str(punch_id))
     punch_response = requests.post(punch_url, headers=headers, data=payload, timeout=30)
-    punch_response.raise_for_status()
     result_soup = BeautifulSoup(punch_response.text, "html.parser")
     result_title = result_soup.find("div", id="title")
-    print(result_title.text.strip() if result_title else "Punch request sent.")
+    result_text = result_title.text.strip() if result_title else "Punch request sent."
+    write_audit_event(
+        config,
+        "post_response",
+        punch_id=str(punch_id),
+        http_status=punch_response.status_code,
+        server_result=result_text,
+    )
+    punch_response.raise_for_status()
+    print(result_text)
 
 
 def check_direct_punch_url(config, cookie):
@@ -373,7 +424,9 @@ def check_direct_punch_url(config, cookie):
         print("BJMF_AUTOSUBMIT is not true. Dry run only; no punch request was submitted.")
         return 1
     post_punch(config, headers, punch_id, submit_url)
-    if not verify_signed(class_id, headers):
+    signed = verify_signed(class_id, headers)
+    write_audit_event(config, "signed_verification", punch_id=str(punch_id), signed=signed)
+    if not signed:
         raise RuntimeError("Punch request finished, but follow-up check did not show a signed status.")
     return 1
 
@@ -482,8 +535,12 @@ def check_one_cookie(config, cookie):
         )
         post_punch(config, headers, punch_id, punch_url)
 
-    if punch_ids and not verify_signed(class_id, headers):
-        raise RuntimeError("Punch request finished, but follow-up check did not show a signed status.")
+    if punch_ids:
+        signed = verify_signed(class_id, headers)
+        for punch_id in punch_ids:
+            write_audit_event(config, "signed_verification", punch_id=str(punch_id), signed=signed)
+        if not signed:
+            raise RuntimeError("Punch request finished, but follow-up check did not show a signed status.")
 
     return len(punch_ids)
 
@@ -494,11 +551,24 @@ def check_all_cookies(config, checker=None):
     failures = []
     cookies = config["cookie"]
     for account_number, cookie in enumerate(cookies, start=1):
+        account_config = dict(config)
+        account_config["_audit_account_number"] = account_number
+        account_config["_audit_student_id"] = extract_student_id(cookie)
+        write_audit_event(account_config, "account_check_started")
         try:
-            total_found += checker(config, cookie)
+            found = checker(account_config, cookie)
+            total_found += found
+            write_audit_event(account_config, "account_check_finished", tasks_found=found)
         except Exception as exc:
             failures.append(exc)
-            print("Cookie account %d check failed: %s" % (account_number, exc))
+            safe_error = _sanitize_audit_value(str(exc))
+            write_audit_event(
+                account_config,
+                "account_check_failed",
+                error_type=type(exc).__name__,
+                error_message=safe_error,
+            )
+            print("Cookie account %d check failed: %s" % (account_number, safe_error))
 
     if failures:
         raise RuntimeError(

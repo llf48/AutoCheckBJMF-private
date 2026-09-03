@@ -1,5 +1,10 @@
+import io
+import json
+import tempfile
 import unittest
+from contextlib import redirect_stdout
 from datetime import datetime
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -24,6 +29,90 @@ from cloud_config import CHINA_TZ
 
 
 class CloudCheckParsingTests(unittest.TestCase):
+    def test_cookie_batch_writes_account_audit_without_exposing_tokens(self):
+        cookies = [
+            "remember_student_first=3170461%7Cfirst-secret-token-value",
+            "remember_student_second=2955801%7Csecond-secret-token-value",
+        ]
+        output = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            audit_path = Path(temp_dir) / "audit.jsonl"
+            config = {"cookie": cookies, "audit_log_path": str(audit_path)}
+            with redirect_stdout(output):
+                found = check_all_cookies(config, checker=lambda _config, _cookie: 0)
+
+            self.assertTrue(audit_path.exists(), "account audit file was not created")
+            records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+
+        self.assertEqual(found, 0)
+        self.assertEqual(
+            [(record["event"], record["account"], record["student_id"]) for record in records],
+            [
+                ("account_check_started", 1, "3170461"),
+                ("account_check_finished", 1, "3170461"),
+                ("account_check_started", 2, "2955801"),
+                ("account_check_finished", 2, "2955801"),
+            ],
+        )
+        combined_output = output.getvalue() + "\n" + "\n".join(json.dumps(record) for record in records)
+        self.assertNotIn("first-secret-token-value", combined_output)
+        self.assertNotIn("second-secret-token-value", combined_output)
+
+    def test_submission_writes_post_attempt_response_and_verification_audit(self):
+        page = SimpleNamespace(
+            text=(
+                '<a id="gps_btn_5228732" '
+                'href="/student/punchw/course/96755/5228732">点此去完成签到</a>'
+            ),
+            url="https://k8n.cn/student/course/96755/punchs?op=ing",
+            status_code=200,
+            raise_for_status=lambda: None,
+        )
+        post_response = SimpleNamespace(
+            text='<div id="title">签到成功</div>',
+            status_code=200,
+            raise_for_status=lambda: None,
+        )
+        config = {
+            "class": "96755",
+            "lat": "23.185647",
+            "lng": "113.33389",
+            "acc": "30",
+            "autosubmit": True,
+            "audit_log_path": "",
+            "_audit_account_number": 2,
+            "_audit_student_id": "2955801",
+        }
+        output = io.StringIO()
+
+        with patch("cloud_check.requests.get", return_value=page), patch(
+            "cloud_check.resolve_submit_url",
+            return_value="https://k8n.cn/student/punchw/course/96755/5228732",
+        ), patch("cloud_check.requests.post", return_value=post_response), patch(
+            "cloud_check.verify_signed", return_value=True
+        ), redirect_stdout(output):
+            found = check_one_cookie(
+                config,
+                "remember_student_second=2955801%7Csecond-secret-token-value",
+            )
+
+        audit_records = [
+            json.loads(line.removeprefix("BJMF_AUDIT "))
+            for line in output.getvalue().splitlines()
+            if line.startswith("BJMF_AUDIT ")
+        ]
+        self.assertEqual(found, 1)
+        self.assertEqual(
+            [record["event"] for record in audit_records],
+            ["post_attempt", "post_response", "signed_verification"],
+        )
+        self.assertEqual(audit_records[0]["punch_id"], "5228732")
+        self.assertEqual(audit_records[1]["http_status"], 200)
+        self.assertEqual(audit_records[1]["server_result"], "签到成功")
+        self.assertTrue(audit_records[2]["signed"])
+        self.assertNotIn("second-secret-token-value", output.getvalue())
+
     def test_cookie_batch_continues_after_one_account_fails(self):
         checked = []
 

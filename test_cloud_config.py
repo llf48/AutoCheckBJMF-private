@@ -1,6 +1,7 @@
 import os
 import unittest
 from datetime import datetime, timezone
+from pathlib import Path
 from unittest.mock import patch
 
 from cloud_config import is_class_cycle_check_time, is_inside_china_time_window, load_cloud_config
@@ -9,6 +10,15 @@ from cloud_config import seconds_until_china_time_window_start
 
 
 class CloudConfigTests(unittest.TestCase):
+    def test_workflows_upload_sanitized_audit_artifact(self):
+        workflow_dir = Path(__file__).parent / ".github" / "workflows"
+        for workflow_name in ("AutoCheckBJMF.yml", "BJMFManualForceCheck.yml"):
+            workflow = (workflow_dir / workflow_name).read_text(encoding="utf-8")
+            with self.subTest(workflow=workflow_name):
+                self.assertIn('BJMF_AUDIT_LOG: "bjmf-audit.jsonl"', workflow)
+                self.assertIn("uses: actions/upload-artifact@v4", workflow)
+                self.assertIn("path: bjmf-audit.jsonl", workflow)
+
     def test_loads_required_values_from_environment(self):
         env = {
             "BJMF_CLASS_ID": "96755",
@@ -45,6 +55,21 @@ class CloudConfigTests(unittest.TestCase):
             config["cookie"],
             ["remember_student_primary=value", "remember_student_second=value"],
         )
+
+    def test_loads_audit_log_path(self):
+        env = {
+            "BJMF_CLASS_ID": "96755",
+            "BJMF_LAT": "23.185647",
+            "BJMF_LNG": "113.33389",
+            "BJMF_ACC": "30",
+            "BJMF_COOKIE": "remember_student_example=value",
+            "BJMF_AUDIT_LOG": "bjmf-audit.jsonl",
+        }
+
+        with patch.dict(os.environ, env, clear=True):
+            config = load_cloud_config()
+
+        self.assertEqual(config.get("audit_log_path"), "bjmf-audit.jsonl")
 
     def test_raises_for_missing_required_secret(self):
         env = {

@@ -83,4 +83,14 @@ jobs:
           BJMF_CLASS_WINDOW_GATE: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.force_check != 'true' && github.event.inputs.notice_text == '' && github.event.inputs.direct_punch_url == '' }}
           BJMF_NOTICE_TEXT: ${{ github.event.inputs.notice_text || '' }}
           BJMF_DIRECT_PUNCH_URL: ${{ github.event.inputs.direct_punch_url || '' }}
+          BJMF_AUDIT_LOG: "bjmf-audit.jsonl"
         run: python cloud_check.py
+
+      - name: Upload sanitized audit log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bjmf-audit-${{ github.run_id }}
+          path: bjmf-audit.jsonl
+          if-no-files-found: ignore
+          retention-days: 30
