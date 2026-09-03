@@ -64,12 +64,14 @@ class CloudConfigTests(unittest.TestCase):
             "BJMF_ACC": "30",
             "BJMF_COOKIE": "remember_student_example=value",
             "BJMF_AUDIT_LOG": "bjmf-audit.jsonl",
+            "GITHUB_RUN_ID": "123456789",
         }
 
         with patch.dict(os.environ, env, clear=True):
             config = load_cloud_config()
 
         self.assertEqual(config.get("audit_log_path"), "bjmf-audit.jsonl")
+        self.assertEqual(config.get("github_run_id"), "123456789")
 
     def test_raises_for_missing_required_secret(self):
         env = {

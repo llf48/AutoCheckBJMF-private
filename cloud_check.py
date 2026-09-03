@@ -76,7 +76,16 @@ def write_audit_event(config, event, **fields):
         record["account"] = account_number
     if student_id:
         record["student_id"] = student_id
-    record.update({name: _sanitize_audit_value(value) for name, value in fields.items()})
+    github_run_id = config.get("github_run_id")
+    if github_run_id:
+        record["github_run_id"] = github_run_id
+    controlled_text_fields = {"reason", "error_type"}
+    record.update(
+        {
+            name: value if name in controlled_text_fields else _sanitize_audit_value(value)
+            for name, value in fields.items()
+        }
+    )
     serialized = json.dumps(record, ensure_ascii=False, sort_keys=True)
     print("BJMF_AUDIT " + serialized)
 
@@ -591,12 +600,15 @@ def run_once():
 
 def run_watch():
     config = load_cloud_config()
+    write_audit_event(config, "run_started")
     has_manual_trigger = config.get("force_check") or config.get("notice_text") or config.get("direct_punch_url")
     if config.get("paused") and not has_manual_trigger and not config.get("class_window_gate"):
+        write_audit_event(config, "run_skipped", reason="paused")
         print("BJMF_PAUSED is true. Skipping network check.")
         return
     if config.get("class_window_gate") and not has_manual_trigger:
         if not is_class_cycle_check_time():
+            write_audit_event(config, "run_skipped", reason="outside_class_cycle_minute")
             print("BJMF_CLASS_WINDOW_GATE is true, but this is not a class-cycle check minute. Skipping network check.")
             return
         print("BJMF_CLASS_WINDOW_GATE allowed this class-cycle check.")

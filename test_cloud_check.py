@@ -22,6 +22,7 @@ from cloud_check import parse_notice_end_time
 from cloud_check import raise_if_cooldown_page
 from cloud_check import raise_if_unparsed_active_task
 from cloud_check import raise_if_login_abnormal
+from cloud_check import run_watch
 from cloud_check import should_run_for_notice
 from cloud_check import check_all_cookies
 from cloud_check import check_one_cookie
@@ -29,6 +30,37 @@ from cloud_config import CHINA_TZ
 
 
 class CloudCheckParsingTests(unittest.TestCase):
+    def test_class_gate_skip_writes_run_level_audit(self):
+        output = io.StringIO()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            audit_path = Path(temp_dir) / "audit.jsonl"
+            config = {
+                "force_check": False,
+                "notice_text": "",
+                "direct_punch_url": "",
+                "paused": True,
+                "class_window_gate": True,
+                "audit_log_path": str(audit_path),
+                "github_run_id": "123456789",
+            }
+            with patch("cloud_check.load_cloud_config", return_value=config), patch(
+                "cloud_check.is_class_cycle_check_time", return_value=False
+            ), redirect_stdout(output):
+                run_watch()
+
+            self.assertTrue(audit_path.exists(), "run audit file was not created")
+            records = [json.loads(line) for line in audit_path.read_text(encoding="utf-8").splitlines()]
+
+        self.assertEqual(
+            [(record["event"], record.get("reason")) for record in records],
+            [
+                ("run_started", None),
+                ("run_skipped", "outside_class_cycle_minute"),
+            ],
+        )
+        self.assertTrue(all(record["github_run_id"] == "123456789" for record in records))
+
     def test_cookie_batch_writes_account_audit_without_exposing_tokens(self):
         cookies = [
             "remember_student_first=3170461%7Cfirst-secret-token-value",
