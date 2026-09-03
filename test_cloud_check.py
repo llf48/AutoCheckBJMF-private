@@ -1,6 +1,7 @@
 import unittest
 from datetime import datetime
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from cloud_check import extract_form_submit_url
 from cloud_check import extract_punch_id_from_url
@@ -18,6 +19,7 @@ from cloud_check import raise_if_unparsed_active_task
 from cloud_check import raise_if_login_abnormal
 from cloud_check import should_run_for_notice
 from cloud_check import check_all_cookies
+from cloud_check import check_one_cookie
 from cloud_config import CHINA_TZ
 
 
@@ -208,6 +210,45 @@ class CloudCheckParsingTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "static QR.*direct_punch_url"):
             raise_if_unparsed_active_task(html, [], [])
+
+    def test_static_qr_without_id_falls_back_to_legacy_list_page(self):
+        current_page = SimpleNamespace(
+            text='''
+                <div class="card punch-card punch-card--primary">
+                    <div class="punch-status">正在进行</div>
+                    <div class="punch-meta"><span>二维码签到</span></div>
+                    <a>点此去完成签到</a>
+                </div>
+            ''',
+            url="https://k8n.cn/student/course/96755/punchs?op=ing",
+            status_code=200,
+            raise_for_status=lambda: None,
+        )
+        legacy_page = SimpleNamespace(
+            text='<button id="punchcard_812345">扫码签到</button>',
+            url="https://k8n.cn/student/course/96755/punchs",
+            status_code=200,
+            raise_for_status=lambda: None,
+        )
+        config = {
+            "class": "96755",
+            "lat": "23.185647",
+            "lng": "113.33389",
+            "acc": "30",
+            "autosubmit": False,
+        }
+
+        with patch("cloud_check.requests.get", side_effect=[current_page, legacy_page]) as get:
+            found = check_one_cookie(config, "remember_student_test=student%7Ctoken")
+
+        self.assertEqual(found, 1)
+        self.assertEqual(
+            [call.args[0] for call in get.call_args_list],
+            [
+                "https://k8n.cn/student/course/96755/punchs?op=ing",
+                "https://k8n.cn/student/course/96755/punchs",
+            ],
+        )
 
     def test_structure_hints_redact_dynamic_values(self):
         html = (

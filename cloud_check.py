@@ -262,19 +262,27 @@ def get_active_structure_hints(html, limit=12):
     return hints
 
 
+def has_unparsed_static_qr_task(html, gps_ids, scan_ids):
+    if gps_ids or scan_ids or has_signed_status(html):
+        return False
+    soup = BeautifulSoup(html, "html.parser")
+    for card in soup.select(".punch-card--primary"):
+        card_text = "\n".join(card.stripped_strings)
+        if contains_any(card_text, ACTIVE_MARKERS) and "二维码" in card_text:
+            return True
+    return False
+
+
 def raise_if_unparsed_active_task(html, gps_ids, scan_ids):
     if gps_ids or scan_ids or has_signed_status(html):
         return
     if has_active_task_marker(html):
-        soup = BeautifulSoup(html, "html.parser")
-        for card in soup.select(".punch-card--primary"):
-            card_text = "\n".join(card.stripped_strings)
-            if contains_any(card_text, ACTIVE_MARKERS) and "二维码" in card_text:
-                raise RuntimeError(
-                    "Active static QR punch does not expose its punch id on the student task list. "
-                    "Scan the QR code and trigger the workflow with direct_punch_url; "
-                    "the same URL will be submitted separately for every configured cookie account."
-                )
+        if has_unparsed_static_qr_task(html, gps_ids, scan_ids):
+            raise RuntimeError(
+                "Active static QR punch does not expose its punch id on the student task list or fallback page. "
+                "Scan the QR code and trigger the workflow with direct_punch_url; "
+                "the same URL will be submitted separately for every configured cookie account."
+            )
         hints = get_active_structure_hints(html)
         raise RuntimeError(
             "Active punch task is visible, but cloud_check could not parse its punch id. "
@@ -440,6 +448,20 @@ def check_one_cookie(config, cookie):
 
     combined_html = "\n".join(response.text for _, response in responses)
     gps_ids, scan_ids = extract_punch_ids(combined_html)
+    if any(
+        has_unparsed_static_qr_task(response.text, gps_ids, scan_ids)
+        for _, response in responses
+    ):
+        suffix = "/punchs"
+        url = "https://k8n.cn/student/course/" + class_id + suffix
+        response = requests.get(url, headers=headers, timeout=30)
+        response.raise_for_status()
+        raise_if_login_abnormal(response)
+        responses.append((suffix, response))
+        print_page_diagnostics(suffix, response, class_id)
+        raise_if_cooldown_page(response.text)
+        combined_html = "\n".join(item.text for _, item in responses)
+        gps_ids, scan_ids = extract_punch_ids(combined_html)
     submit_urls = extract_submit_urls(combined_html, class_id)
     for _, response in responses:
         raise_if_unparsed_active_task(response.text, gps_ids, scan_ids)
