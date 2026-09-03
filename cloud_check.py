@@ -214,6 +214,14 @@ def has_cooldown_marker(html):
     return contains_any(get_visible_text(html), COOLDOWN_MARKERS)
 
 
+def raise_if_cooldown_page(html):
+    if has_cooldown_marker(html):
+        raise RuntimeError(
+            "BJMF returned a cooldown page; do not retry this account until the cooldown expires, "
+            "because another visit can extend the waiting period."
+        )
+
+
 def raise_if_login_abnormal(response):
     title = get_page_title(response.text)
     if contains_any(title, ERROR_TITLE_MARKERS):
@@ -340,9 +348,7 @@ def check_direct_punch_url(config, cookie):
     response.raise_for_status()
     raise_if_login_abnormal(response)
     print_page_diagnostics("direct_punch_url", response, class_id)
-    if has_cooldown_marker(response.text):
-        print("Direct punch URL returned a cooldown page. Not submitting.")
-        return 0
+    raise_if_cooldown_page(response.text)
 
     punch_id = extract_punch_id_from_url(response.url) or extract_punch_id_from_url(direct_url)
     if not punch_id:
@@ -430,6 +436,7 @@ def check_one_cookie(config, cookie):
         raise_if_login_abnormal(response)
         responses.append((suffix, response))
         print_page_diagnostics(suffix, response, class_id)
+        raise_if_cooldown_page(response.text)
 
     combined_html = "\n".join(response.text for _, response in responses)
     gps_ids, scan_ids = extract_punch_ids(combined_html)

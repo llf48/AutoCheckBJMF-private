@@ -13,6 +13,7 @@ from cloud_check import has_active_task_marker
 from cloud_check import has_cooldown_marker
 from cloud_check import has_signed_status
 from cloud_check import parse_notice_end_time
+from cloud_check import raise_if_cooldown_page
 from cloud_check import raise_if_unparsed_active_task
 from cloud_check import raise_if_login_abnormal
 from cloud_check import should_run_for_notice
@@ -181,6 +182,12 @@ class CloudCheckParsingTests(unittest.TestCase):
         html = "<body>4168分钟完全后再访问该页面，冷却前访问一次会增加1分钟等待时间</body>"
 
         self.assertTrue(has_cooldown_marker(html))
+
+    def test_cooldown_page_cannot_be_reported_as_no_task(self):
+        html = "<body>4168分钟完全后再访问该页面，冷却前访问一次会增加1分钟等待时间</body>"
+
+        with self.assertRaisesRegex(RuntimeError, "cooldown.*not retry"):
+            raise_if_cooldown_page(html)
 
     def test_raises_when_active_punch_button_is_visible_but_unparsed(self):
         html = "<div>正在进行</div><a>点此去完成签到</a>"
