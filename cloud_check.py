@@ -258,6 +258,15 @@ def raise_if_unparsed_active_task(html, gps_ids, scan_ids):
     if gps_ids or scan_ids or has_signed_status(html):
         return
     if has_active_task_marker(html):
+        soup = BeautifulSoup(html, "html.parser")
+        for card in soup.select(".punch-card--primary"):
+            card_text = "\n".join(card.stripped_strings)
+            if contains_any(card_text, ACTIVE_MARKERS) and "二维码" in card_text:
+                raise RuntimeError(
+                    "Active static QR punch does not expose its punch id on the student task list. "
+                    "Scan the QR code and trigger the workflow with direct_punch_url; "
+                    "the same URL will be submitted separately for every configured cookie account."
+                )
         hints = get_active_structure_hints(html)
         raise RuntimeError(
             "Active punch task is visible, but cloud_check could not parse its punch id. "

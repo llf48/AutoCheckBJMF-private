@@ -188,6 +188,20 @@ class CloudCheckParsingTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "could not parse"):
             raise_if_unparsed_active_task(html, [], [])
 
+    def test_static_qr_without_id_requests_the_scanned_url(self):
+        html = '''
+            <div class="card punch-card punch-card--primary">
+                <div class="card-body">
+                    <div class="punch-status">正在进行</div>
+                    <div class="punch-meta"><span>二维码签到</span></div>
+                    <a>点此去完成签到</a>
+                </div>
+            </div>
+        '''
+
+        with self.assertRaisesRegex(RuntimeError, "static QR.*direct_punch_url"):
+            raise_if_unparsed_active_task(html, [], [])
+
     def test_structure_hints_redact_dynamic_values(self):
         html = (
             '<a class="scan-entry" data-session="abcdefghijklmnopqrstuvwxyz123456" '

@@ -11,7 +11,7 @@ on:
         required: false
         default: ""
       direct_punch_url:
-        description: "Optional direct punch page URL/path from the BJMF notice"
+        description: "Scanned static-QR punch URL/path when the task list omits its ID"
         required: false
         default: ""
 
