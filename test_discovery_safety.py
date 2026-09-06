@@ -153,6 +153,18 @@ class DiscoverySafetyTests(unittest.TestCase):
                 check.check_all_cookies(config())
         self.assertEqual(summary.call_args.args[0][0]["outcome"], "submission_unknown")
 
+    def test_uncertain_post_can_be_confirmed_by_exact_task_without_resending(self):
+        import requests
+        signed = response('<div class="punch-card punch-card--success" data-punch-id="123">已签到</div>')
+        for result in (response('', status=302), requests.Timeout('response lost')):
+            with self.subTest(result=type(result).__name__), patch("cloud_check.requests.get", side_effect=[response(GPS), response('<form method="post"></form>', "/student/punchw/course/96755/123"), signed]), patch("cloud_check.requests.post", side_effect=[result]) as post, patch("cloud_check.write_account_summary") as summary, redirect_stdout(io.StringIO()):
+                try:
+                    check.check_all_cookies(config())
+                except RuntimeError as exc:
+                    self.fail("Exact task verification should resolve an uncertain POST: " + str(exc))
+                self.assertEqual(post.call_count, 1)
+                self.assertEqual(summary.call_args.args[0][0]["outcome"], "submitted_confirmed")
+
     def test_both_workflows_share_a_lock_and_offer_read_only_checks(self):
         workflows = [(ROOT / ".github/workflows" / name).read_text(encoding="utf-8") for name in ("AutoCheckBJMF.yml", "BJMFManualForceCheck.yml")]
         groups = [re.search(r"(?m)^  group: (.+)$", text).group(1) for text in workflows]

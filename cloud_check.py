@@ -511,7 +511,8 @@ def post_punch(config, headers, punch_id, punch_url):
     )
     punch_response.raise_for_status()
     if 300 <= punch_response.status_code < 400:
-        raise RuntimeError("Submission returned a redirect; result is unknown and was not resubmitted.")
+        write_audit_event(config, "submission_redirect", punch_id=str(punch_id), outcome="submission_unknown")
+        return "unknown"  # Verify the task list; do not follow or repeat the POST.
     raise_if_cooldown_page(punch_response.text)
     raise_if_login_abnormal(punch_response)
     print(sanitize(result_text, config))
@@ -522,7 +523,13 @@ def post_punch(config, headers, punch_id, punch_url):
 
 
 def submit_and_verify(config, headers, punch_id, punch_url):
-    status = post_punch(config, headers, punch_id, punch_url)
+    attempts_before = config.get("_post_attempts", 0)
+    try:
+        status = post_punch(config, headers, punch_id, punch_url)
+    except requests.RequestException:
+        if config.get("_post_attempts", 0) == attempts_before:
+            raise  # A preflight failure did not submit anything.
+        status = "unknown"
     confirmed = status in ("confirmed", "already_signed")
     if confirmed:
         config["_confirmed"] = config.get("_confirmed", 0) + 1

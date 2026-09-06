@@ -44,6 +44,7 @@ These are reproduced code defects and observability improvements, not proof that
 - Capture account-scoped GET attempts, response status, page fingerprints, task types/timestamps, and action-first structural hints. Never retain raw HTML, hidden token values, or JavaScript handler bodies.
 - Distinguish cooldown, login redirection, unreadable pages, server-declared prior attendance, and uncertain POST results. A generic page error is not proof of cookie expiry.
 - Disable automatic POST redirects and restrict GET redirects to the same trusted endpoint. Read-only mode also blocks POST at the submission function itself.
+- If a POST response is lost, raises a transport/HTTP error, or redirects, perform exact-task read-only verification before declaring the result unknown. Never resend the POST to resolve uncertainty.
 - Both attendance workflows share one concurrency group. Each offers `dry_run` for read-only diagnostics; the normal scheduled behavior and account secrets are unchanged.
 
 ## Read-only cloud validation
