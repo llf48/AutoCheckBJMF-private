@@ -1,12 +1,18 @@
 # External 5-Minute Trigger Setup
 
-This repository now supports short watcher runs that are safe to trigger every 5 minutes.
+## Read-only diagnosis and account results
+
+Both attendance workflows expose `dry_run`. Use **BJMF Manual Force Check** with `dry_run=true`, empty `notice_text` and empty `direct_punch_url` to check cloud account access without submitting attendance. Normal schedules still submit when they identify a valid task.
+
+Both workflows now use the same `bjmf-attendance` concurrency group to avoid overlapping manual and scheduled submissions. Per-account summaries distinguish already signed, confirmed submission, missing task URL, cooldown, login required, unreadable page, rejected submission and unknown submission result. An overall failed run can still contain an account that succeeded.
+
+The external scheduler may dispatch every 5 minutes. The checker applies its class-cycle gate and normally performs a single check at an allowed time.
 
 Why this exists:
 
 - GitHub Actions `schedule` can be delayed or skipped.
 - `cron-job.org` can call `workflow_dispatch` every 5 minutes as a second trigger source.
-- Each run watches for 5 minutes and checks every 30 seconds.
+- `BJMF_SAFE_SINGLE_CHECK=true` disables the legacy watch loop. Blank external dispatches follow the 10-minute class-cycle checkpoints and break-time gate.
 
 ## 1. Create a GitHub token
 
@@ -68,7 +74,7 @@ Expected successful response:
 
 ## 3. Keep GitHub schedule enabled
 
-The built-in GitHub schedule is still enabled and runs every 5 minutes during the China-time watch window.
+The built-in GitHub schedule is still enabled. Its exact checkpoints are defined in `AutoCheckBJMF.yml`; they are not an all-day 5-minute polling loop.
 The external trigger is a backup for missed GitHub schedules.
 
 ## 4. How to check whether it worked
@@ -81,10 +87,14 @@ https://github.com/llf48/AutoCheckBJMF-private/actions/workflows/AutoCheckBJMF.y
 
 You should see `workflow_dispatch` runs every 5 minutes while the cron-job.org job is active.
 
-If a sign-in is active, the log should show lines like:
+Open the run's per-account summary. A successful process or an `already_signed` observation does not establish a new submission. Submission evidence contains:
 
 ```text
-Found GPS punch ids: ['...']
-签到成功
-Found and submitted 1 punch task(s). Ending watch.
+post_attempt
+post_response (submission_status=confirmed)
+account_check_finished (outcome=submitted_confirmed)
 ```
+
+Audit artifacts are named `bjmf-audit-<run_id>-<run_attempt>` and retained for 30 days. `needs_punch_url` means the active task did not expose a usable task ID; provide a valid URL from that task instead of re-running the same failing check repeatedly.
+
+The separate `Offline regression tests` workflow runs mocked tests without attendance secrets. A green result there is a code-test result, not an attendance result.

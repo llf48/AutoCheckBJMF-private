@@ -68,6 +68,8 @@ def load_cloud_config():
         "direct_punch_url": os.environ.get("BJMF_DIRECT_PUNCH_URL", "").strip(),
         "audit_log_path": os.environ.get("BJMF_AUDIT_LOG", "").strip(),
         "github_run_id": os.environ.get("GITHUB_RUN_ID", "").strip(),
+        "github_run_attempt": os.environ.get("GITHUB_RUN_ATTEMPT", "").strip(),
+        "github_sha": os.environ.get("GITHUB_SHA", "").strip(),
     }
 
 

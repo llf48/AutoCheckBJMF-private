@@ -103,6 +103,7 @@ class CloudCheckParsingTests(unittest.TestCase):
         )
         post_response = SimpleNamespace(
             text='<div id="title">签到成功</div>',
+            url="https://k8n.cn/student/punchw/course/96755/5228732",
             status_code=200,
             raise_for_status=lambda: None,
         )
@@ -135,6 +136,8 @@ class CloudCheckParsingTests(unittest.TestCase):
             if line.startswith("BJMF_AUDIT ")
         ]
         self.assertEqual(found, 1)
+        audit_records = [record for record in audit_records if record["event"] in
+                         ("post_attempt", "post_response", "signed_verification")]
         self.assertEqual(
             [record["event"] for record in audit_records],
             ["post_attempt", "post_response", "signed_verification"],

@@ -2,3 +2,4 @@ config.json
 AutoCheckBJMF.log
 __pycache__/
 *.pyc
+bjmf-audit*.jsonl

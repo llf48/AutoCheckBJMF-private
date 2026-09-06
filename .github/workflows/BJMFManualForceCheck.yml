@@ -6,6 +6,11 @@ env:
 on:
   workflow_dispatch:
     inputs:
+      dry_run:
+        description: "Read-only diagnosis; never submit attendance"
+        type: boolean
+        required: false
+        default: false
       notice_text:
         description: "Optional BJMF/WeChat notice text with an end time"
         required: false
@@ -16,7 +21,7 @@ on:
         default: ""
 
 concurrency:
-  group: bjmf-manual-force-check
+  group: bjmf-attendance
   cancel-in-progress: false
 
 jobs:
@@ -50,7 +55,7 @@ jobs:
           BJMF_WATCH_MINUTES: "5"
           BJMF_WATCH_INTERVAL_SECONDS: "30"
           BJMF_WATCH_UNTIL_WINDOW_END: "false"
-          BJMF_AUTOSUBMIT: "true"
+          BJMF_AUTOSUBMIT: ${{ github.event.inputs.dry_run == 'true' && 'false' || 'true' }}
           BJMF_PAUSED: "false"
           BJMF_SAFE_SINGLE_CHECK: "true"
           BJMF_FORCE_CHECK: "true"
@@ -58,13 +63,13 @@ jobs:
           BJMF_NOTICE_TEXT: ${{ github.event.inputs.notice_text || '' }}
           BJMF_DIRECT_PUNCH_URL: ${{ github.event.inputs.direct_punch_url || '' }}
           BJMF_AUDIT_LOG: "bjmf-audit.jsonl"
-        run: python cloud_check.py
+        run: python -u cloud_check.py
 
       - name: Upload sanitized audit log
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: bjmf-audit-${{ github.run_id }}
+          name: bjmf-audit-${{ github.run_id }}-${{ github.run_attempt }}
           path: bjmf-audit.jsonl
           if-no-files-found: ignore
           retention-days: 30

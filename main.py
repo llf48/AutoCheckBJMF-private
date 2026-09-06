@@ -9,6 +9,11 @@ import schedule
 from datetime import datetime
 import logging
 from polling import get_next_poll_delay
+from audit_log import sanitize, write_account_summary, write_audit_event
+from cloud_check import (MissingPunchIdError, classify_server_result, extract_punch_ids,
+                         extract_student_id, find_remember_cookie, has_active_task_marker,
+                         has_signed_status, raise_if_cooldown_page, raise_if_login_abnormal,
+                         raise_if_unparsed_active_task)
 
 # 获取当前目录
 current_directory = os.getcwd()
@@ -129,9 +134,18 @@ with open(file_path, 'r') as file:
     print("定时:" + scheduletime)
     if poll_enabled:
         print("轮询:%s-%s / %d分钟"%(poll_start, poll_end, poll_interval))
-    print("通知token:" + pushtoken)
+    print("通知配置:" + ("已设置" if pushtoken else "未设置"))
     if debug:print("Debug:" + str(debug))
     print("---------------------")
+
+LOCAL_AUDIT_CONFIG = {
+    "cookie": Cookies,
+    "audit_log_path": os.path.join(current_directory, "bjmf-audit-local.jsonl"),
+    "_audit_source": "local_main",
+    "_audit_entrypoint": __file__,
+}
+write_audit_event(LOCAL_AUDIT_CONFIG, "run_started", account_count=len(Cookies))
+
 
 def printLog(type, message):
     if debug:
@@ -251,137 +265,91 @@ def thisTime(hour,minute):
         time.sleep(60)
 
 def qiandao(theCookies):
-    # title = '班级魔法自动签到任务'  # 改成你要的标题内容
+    # Keep the legacy list and submission routes; record the actual outcome.
     url = 'http://k8n.cn/student/course/' + ClassID + '/punchs'
     errorCookie = []
     nullCookie = 0
-    # 多用户检测签到
-    for uid in range(0,len(theCookies)):
-        onlyCookie = theCookies[uid]
-
-        # 使用正则表达式提取目标字符串 - 用户备注
-        pattern = r'username=[^;]+'
-        result = re.search(pattern, onlyCookie)
-
-        if result:
-            username_string = " <%s>"%result.group(0).split("=")[1]
-        else:
-            username_string = ""
-
-        # 用户信息显示与5秒冷却
-        print("☆☆☆☆☆ 用户UID：%d%s 即将签到 ☆☆☆☆☆"%(uid+1,username_string),end="")
-        time.sleep(1) #暂停5秒后进行签到
-        print("\r★☆☆☆☆ 用户UID：%d%s 即将签到 ☆☆☆☆★"%(uid+1,username_string),end="")
-        time.sleep(1)
-        print("\r★★☆☆☆ 用户UID：%d%s 即将签到 ☆☆☆★★"%(uid+1,username_string),end="")
-        time.sleep(1)
-        print("\r★★★☆☆ 用户UID：%d%s 即将签到 ☆☆★★★"%(uid+1,username_string),end="")
-        time.sleep(1)
-        print("\r★★★★☆ 用户UID：%d%s 即将签到 ☆★★★★"%(uid+1,username_string),end="")
-        time.sleep(1)
-        print("\r★★★★★ 用户UID：%d%s 开始签到 ★★★★★"%(uid+1,username_string))
-
-        # 使用正则表达式提取目标字符串 - Cookie
-        pattern = r'remember_student_59ba36addc2b2f9401580f014c7f58ea4e30989d=[^;]+'
-        result = re.search(pattern, onlyCookie)
-
-        if result:
-            extracted_string = result.group(0)
-            if debug:
-                print(extracted_string)
+    rows = []
+    for uid, onlyCookie in enumerate(theCookies, start=1):
+        account = Cookies.index(onlyCookie) + 1 if onlyCookie in Cookies else uid
+        cfg = dict(LOCAL_AUDIT_CONFIG, _audit_account_number=account,
+                   _audit_student_id=extract_student_id(onlyCookie))
+        attempts = confirmed = 0
+        outcome = "check_failed"
+        detail = ""
+        write_audit_event(cfg, "account_check_started")
+        try:
             headers = {
                 'User-Agent': 'Mozilla/5.0 (Linux; Android 9; AKT-AK47 Build/USER-AK47; wv) AppleWebKit/537.36 (KHTML, like Gecko) Version/4.0 Chrome/116.0.0.0 Mobile Safari/537.36 XWEB/1160065 MMWEBSDK/20231202 MMWEBID/1136 MicroMessenger/8.0.47.2560(0x28002F35) WeChat/arm64 Weixin NetType/4G Language/zh_CN ABI/arm64',
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/wxpic,image/tpg,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/wxpic,image/tpg,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
                 'X-Requested-With': 'com.tencent.mm',
                 'Referer': 'http://k8n.cn/student/course/' + ClassID,
                 'Accept-Encoding': 'gzip, deflate',
-                'Accept-Language': 'zh-CN,zh-SG;q=0.9,zh;q=0.8,en-SG;q=0.7,en-US;q=0.6,en;q=0.5',
-                'Cookie': extracted_string
+                'Accept-Language': 'zh-CN,zh-SG;q=0.9,zh;q=0.8,en-SG;q=0.7,en;q=0.5',
+                'Cookie': find_remember_cookie(onlyCookie),
             }
-
-            response = requests.get(url, headers=headers)
-            print("响应:", response)
-
-            # 创建 Beautiful Soup 对象解析 HTML
-            soup = BeautifulSoup(response.text, 'html.parser')
-
-            title_tag = soup.find('title')
-
-            if debug:
-                print("★☆★")
-                print(soup)
-                print("===")
-                print(title_tag)
-                print("★☆★")
-
-            if title_tag and "出错" not in title_tag.text:
-                # 使用正则表达式从 HTML 文本中提取所有 punch_gps() 中的数字
-                pattern = re.compile(r'punch_gps\((\d+)\)')
-                matches = pattern.findall(response.text)
-                print("找到GPS定位签到:", matches)
-                pattern2 = re.compile(r'punchcard_(\d+)')
-                matches2 = pattern2.findall(response.text)
-                print("找到扫码签到:", matches2)
-                matches.extend(matches2)
-                if matches:
-                    for match in matches:
-                        url1 = "http://k8n.cn/student/punchs/course/" + ClassID + "/" + match
-                        newX = modify_decimal_part(X)
-                        newY = modify_decimal_part(Y)
-                        payload = {
-                            'id': match,
-                            'lat': newX,
-                            'lng': newY,
-                            'acc': ACC,  #未知，可能是高度
-                            'res': '',  #拍照签到
-                            'gps_addr': ''  #未知，抓取时该函数为空
-                        }
-
-                        response = requests.post(url1, headers=headers, data=payload)
-                        print("签到请求已发送： 签到ID[%s] 签到定位[%s,%s] 签到海拔[%s]"%(match, newX, newY, ACC))
-                        printLog("info", "用户UID[%d%s] | 签到请求已发送： 签到ID[%s] 签到定位[%s,%s] 签到海拔[%s]"%(uid+1, username_string, match, newX, newY, ACC))
-
-                        if response.status_code == 200:
-                            print("请求成功，响应:", response)
-
-                            # 解析响应的 HTML 内容
-                            soup_response = BeautifulSoup(response.text, 'html.parser')
-                            # h1_tag = soup_response.find('h1')
-                            div_tag = soup_response.find('div', id='title')
-
-                            if debug:
-                                print("★☆★")
-                                print(soup_response)
-                                print("===")
-                                print(div_tag)
-                                print("★☆★")
-
-                            if div_tag:
-                                h1_text = div_tag.text
-                                print(h1_text)
-                                printLog("info", "用户UID[%d%s] | %s"%(uid+1, username_string, h1_text))
-                                # encoding:utf-8
-                                if pushtoken != "" and h1_text== "签到成功":
-                                    url = 'http://www.pushplus.plus/send?token=' + pushtoken + '&title=' + "班级魔法自动签到任务" + '&content=' + h1_text  # 不使用请注释
-                                    requests.get(url)  # 不使用请注释
-                                continue  # 返回到查找进行中的签到循环
-                            else:
-                                print("未找到 <h1> 标签，可能存在错误")
-                                printLog("info", "用户UID[%d%s] | 未找到 <h1> 标签，可能存在错误或签到成功"%(uid+1, username_string))
-                        else:
-                            print("请求失败，状态码:", response.status_code)
-                            printLog("error", "用户UID[%d%s] | 请求失败，状态码: %d"%(uid+1, username_string, response.status_code))
-                            print("将本Cookie加入重试队列")
-                            errorCookie.append(onlyCookie)
-                else:
-                    print("未找到在进行的签到")
-            else:
-                print("登录状态异常，将本Cookie加入重试队列")
-                printLog("error", "用户UID[%d%s] | 登录状态异常"%(uid+1, username_string))
+            time.sleep(5)
+            response = requests.get(url, headers=headers, timeout=30)
+            response.raise_for_status()
+            raise_if_login_abnormal(response)
+            raise_if_cooldown_page(response.text)
+            gps_ids, scan_ids = extract_punch_ids(response.text)
+            raise_if_unparsed_active_task(response.text, gps_ids, scan_ids)
+            matches = list(dict.fromkeys(gps_ids + scan_ids))
+            outcome = "already_signed" if has_signed_status(response.text) else "no_task"
+            if outcome == "already_signed" and not has_active_task_marker(response.text):
+                matches = []
+            write_audit_event(cfg, "page_observed", outcome=outcome if not matches else "task_found",
+                              punch_ids=matches, http_status=response.status_code)
+            for match in matches:
+                url1 = "http://k8n.cn/student/punchs/course/" + ClassID + "/" + match
+                payload = {"id": match, "lat": modify_decimal_part(X), "lng": modify_decimal_part(Y),
+                           "acc": ACC, "res": "", "gps_addr": ""}
+                write_audit_event(cfg, "post_attempt", punch_id=match)
+                attempts += 1
+                outcome = "submission_unknown"
+                response = requests.post(url1, headers=headers, data=payload, timeout=30)
+                title = BeautifulSoup(response.text, "html.parser").find("div", id="title")
+                result = title.get_text(" ", strip=True) if title else "No explicit server result"
+                status = classify_server_result(result)
+                write_audit_event(cfg, "post_response", punch_id=match, http_status=response.status_code,
+                                  server_result=result, submission_status=status)
+                response.raise_for_status()
+                raise_if_login_abnormal(response)
+                raise_if_cooldown_page(response.text)
+                print(sanitize(result, cfg))
+                if status == "rejected":
+                    outcome = "submission_rejected"
+                    raise RuntimeError("Server rejected punch: " + sanitize(result, cfg))
+                if status not in ("confirmed", "already_signed"):
+                    raise RuntimeError("Submission response did not confirm success; automatic resend is disabled.")
+                confirmed += 1
+                outcome = "submitted_confirmed" if status == "confirmed" else "already_signed"
+                if pushtoken and status == "confirmed":
+                    try:
+                        requests.get('http://www.pushplus.plus/send', params={
+                            "token": pushtoken, "title": "班级魔法自动签到任务", "content": result,
+                        }, timeout=15)
+                    except requests.RequestException as exc:
+                        write_audit_event(cfg, "notification_failed", error_type=type(exc).__name__)
+            write_audit_event(cfg, "account_check_finished", outcome=outcome,
+                              post_attempts=attempts, confirmed=confirmed)
+        except (requests.RequestException, RuntimeError) as exc:
+            if isinstance(exc, MissingPunchIdError):
+                outcome = "needs_punch_url"
+            elif attempts == 0:
+                outcome = "check_failed"
+            detail = sanitize(str(exc), cfg)
+            write_audit_event(cfg, "account_check_failed", outcome=outcome, error_type=type(exc).__name__,
+                              error_message=detail, post_attempts=attempts, confirmed=confirmed)
+            # Retry only a read-time connection failure; never an uncertain POST or cooldown.
+            if attempts == 0 and isinstance(exc, (requests.ConnectionError, requests.Timeout)):
                 errorCookie.append(onlyCookie)
-        else:
-            nullCookie += 1
-            print("未找到匹配的字符串，检查Cookie是否错误！")
+            else:
+                nullCookie += 1
+        rows.append({"account": account, "student_id": cfg["_audit_student_id"], "outcome": outcome,
+                     "post_attempts": attempts, "confirmed": confirmed, "detail": detail})
+    write_account_summary(rows)
     return errorCookie, nullCookie
 def job():
     current_time = datetime.now()
@@ -391,17 +359,17 @@ def job():
     if len(errorCookie)>0:
         print("检测到有Cookie签到失败，等待5分钟后启动一次重试队列")
         time.sleep(300)
-        errorCookie = qiandao(errorCookie)
+        errorCookie, nullCookie = qiandao(errorCookie)
         if len(errorCookie)>0:
             print("检测到仍然有Cookie签到失败，等待15分钟后最后启动一次重试队列")
             time.sleep(900)
-            errorCookie = qiandao(errorCookie)
+            errorCookie, nullCookie = qiandao(errorCookie)
             if len(errorCookie)>0:
                 print("!!!  检测到仍然有Cookie签到失败，请检查Cookie是否过期或网络异常  !!!")
     elif nullCookie>0:
         print("!!! 本次签到存在异常，请检查Cookie是否均已正常配置 !!!")
     else:
-        print("★本次签到圆满成功★")
+        print("本轮检查完成，各账号实际结果见上方审计记录。")
 
     print("■ □ ■ □ ■ □ 我是分割线 □ ■ □ ■ □ ■")
 
