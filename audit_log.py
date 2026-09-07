@@ -64,6 +64,7 @@ def write_account_summary(rows):
               "needs_punch_url": "缺少任务ID，需要有效签到链接", "submission_unknown": "已尝试提交，结果未确认",
               "submission_rejected": "服务器拒绝提交", "check_failed": "检查失败", "partial_failure": "部分任务成功，另有失败",
               "dry_run": "仅检测，未提交", "checked": "检查结束", "cooldown": "账号冷却，本轮不再访问",
+              "cooldown_wait": "冷却保护中，未访问平台", "cooldown_state_error": "冷却状态读写异常，需检查",
               "login_required": "需要重新登录", "unrecognized_page": "页面异常，不能据此认定Cookie过期",
               "server_already_signed": "提交时服务器告知已签到，并非本次新增签到"}
     lines = ["", "### 各账号签到结果", "", "| 账号 | 用户ID | 结果 | POST尝试次数 | 已确认次数 | 详情 |",

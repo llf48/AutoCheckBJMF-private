@@ -43,6 +43,15 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
 
+      - name: Restore account cooldown state
+        id: cooldown_restore
+        uses: actions/cache/restore@v5
+        with:
+          path: bjmf-cooldowns.json
+          key: bjmf-cooldown-v1-${{ github.ref_name }}-${{ github.run_id }}-${{ github.run_attempt }}
+          restore-keys: |
+            bjmf-cooldown-v1-${{ github.ref_name }}-
+
       - name: Run forced BJMF check
         env:
           BJMF_CLASS_ID: "96755"
@@ -63,7 +72,16 @@ jobs:
           BJMF_NOTICE_TEXT: ${{ github.event.inputs.notice_text || '' }}
           BJMF_DIRECT_PUNCH_URL: ${{ github.event.inputs.direct_punch_url || '' }}
           BJMF_AUDIT_LOG: "bjmf-audit.jsonl"
+          BJMF_COOLDOWN_STATE: "bjmf-cooldowns.json"
+          BJMF_COOLDOWN_BACKOFF_MINUTES: "30"
         run: python -u cloud_check.py
+
+      - name: Save account cooldown state
+        if: always() && hashFiles('bjmf-cooldowns.json') != ''
+        uses: actions/cache/save@v5
+        with:
+          path: bjmf-cooldowns.json
+          key: ${{ steps.cooldown_restore.outputs.cache-primary-key }}
 
       - name: Upload sanitized audit log
         if: always()

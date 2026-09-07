@@ -24,3 +24,39 @@ jobs:
       - run: python -m pip install -r requirements.txt
       - name: Offline tests (no attendance credentials or live requests)
         run: python -m unittest discover -v
+
+      # Exercise the real GitHub cache transport with synthetic state only.
+      # This namespace cannot restore or overwrite production cooldown records.
+      - name: Create synthetic cooldown state
+        if: github.event_name != 'pull_request'
+        run: |
+          python - <<'PY'
+          from cooldown_state import CooldownState
+          state = CooldownState("cooldown-cache-test.json")
+          state.mark(state.account_key("offline-test-account", ""), 3600)
+          PY
+      - name: Save synthetic cooldown state
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/save@v5
+        with:
+          path: cooldown-cache-test.json
+          key: bjmf-cooldown-test-${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Remove synthetic local copy
+        if: github.event_name != 'pull_request'
+        run: python -c "from pathlib import Path; Path('cooldown-cache-test.json').unlink()"
+      - name: Restore synthetic cooldown state
+        if: github.event_name != 'pull_request'
+        uses: actions/cache/restore@v5
+        with:
+          path: cooldown-cache-test.json
+          key: bjmf-cooldown-test-${{ github.run_id }}-${{ github.run_attempt }}
+          fail-on-cache-miss: true
+      - name: Verify synthetic state in a new process
+        if: github.event_name != 'pull_request'
+        run: |
+          python - <<'PY'
+          from cooldown_state import CooldownState
+          state = CooldownState("cooldown-cache-test.json")
+          assert state.deadline(state.account_key("offline-test-account", "")) > 0
+          print("Synthetic cooldown survived cache save, local removal, restore and a new process.")
+          PY

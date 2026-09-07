@@ -3,3 +3,5 @@ AutoCheckBJMF.log
 __pycache__/
 *.pyc
 bjmf-audit*.jsonl
+bjmf-cooldowns.json
+bjmf-cooldowns.json.tmp

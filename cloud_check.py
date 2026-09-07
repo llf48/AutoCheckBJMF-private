@@ -2,6 +2,7 @@ from cloud_config import CHINA_TZ, is_class_cycle_check_time, is_inside_china_ti
 from cloud_config import seconds_until_china_time_window_end
 from cloud_config import seconds_until_china_time_window_start
 from audit_log import sanitize, write_account_summary, write_audit_event
+from cooldown_state import CooldownState, CooldownStateError, cooldown_delay_seconds
 import random
 import re
 import time
@@ -224,9 +225,29 @@ def get_page_title(html):
 
 
 def has_signed_status(html):
-    text = get_visible_text(html)
-    text = re.sub(r"\bnot(?:\s+yet)?\s+signed\b", "", text, flags=re.I)
-    return contains_any(text, SIGNED_MARKERS) or bool(re.search(r"(?<![\w-])signed(?![\w-])", text, re.I))
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in list(soup.find_all(True)):
+        if tag.attrs is None:  # Its hidden ancestor was already removed.
+            continue
+        style = tag.get("style", "")
+        if (tag.name in ("script", "style", "noscript", "template")
+                or tag.has_attr("hidden") or tag.get("aria-hidden", "").lower() == "true"
+                or re.search(r"(?:^|;)\s*(?:display\s*:\s*none|visibility\s*:\s*(?:hidden|collapse))\b", style, re.I)):
+            tag.decompose()
+    # A server-rendered success card is stronger evidence than a keyword.
+    if soup.select_one(".punch-card--success"):
+        return True
+    # Legacy pages use standalone labels. Never match a substring in counters,
+    # instructions, negated status, or a hidden template.
+    clock = r"(?:\d{4}-\d{1,2}-\d{1,2}\s+)?\d{1,2}:\d{2}(?::\d{2})?"
+    label = rf"(?:{clock}\s+)?(?:签到状态\s*[:：]\s*)?(?:(?:您|你)?已(?:经)?签到|已签|签到成功|signed)(?:\s+{clock})?[!！。.]*"
+    candidates = set()
+    for node in soup.find_all(string=True):
+        container = node.parent
+        while container.name in ("span", "b", "strong", "em", "i", "small", "a", "label") and container.parent:
+            container = container.parent
+        candidates.add(container.get_text(" ", strip=True))
+    return any(re.fullmatch(label, text.strip(), flags=re.I) for text in candidates)
 
 
 def pending_task_html(html):
@@ -257,8 +278,17 @@ class UnrecognizedPageError(RuntimeError):
     pass
 
 
-def raise_if_cooldown_page(html):
+def raise_if_cooldown_page(html, config=None):
     if has_cooldown_marker(html):
+        if config is not None and config.get("_cooldown_store") is not None:
+            seconds = cooldown_delay_seconds(get_visible_text(html), config.get("cooldown_backoff_minutes", 30))
+            try:
+                until = config["_cooldown_store"].mark(config["_cooldown_key"], seconds)
+            except CooldownStateError:
+                write_audit_event(config, "cooldown_state_error", reason="persist_failed")
+                raise
+            write_audit_event(config, "cooldown_recorded", wait_seconds=seconds,
+                              cooldown_until_china=datetime.fromtimestamp(until, CHINA_TZ).isoformat(timespec="seconds"))
         raise AccountCooldownError(
             "BJMF returned a cooldown page; do not retry this account until the cooldown expires, "
             "because another visit can extend the waiting period."
@@ -393,6 +423,8 @@ def print_page_diagnostics(label, response, class_id, config=None):
 
 def get_attendance_page(url, headers, config=None, phase="list"):
     """Bounded GETs only; never forward credentials through an unchecked redirect."""
+    if config and config.get("_cooldown_store") and config["_cooldown_store"].deadline(config["_cooldown_key"]):
+        raise AccountCooldownError("Account cooldown is still active; no network request was made.")
     original = urlsplit(url)
     for _ in range(3):
         parsed = urlsplit(url)
@@ -413,8 +445,8 @@ def get_attendance_page(url, headers, config=None, phase="list"):
                 validate_punch_url(target, headers, (config or {}).get("class"))
             url = target
             continue
+        raise_if_cooldown_page(response.text, config)
         response.raise_for_status()
-        raise_if_cooldown_page(response.text)
         raise_if_login_abnormal(response)
         return response
     raise RuntimeError("Too many attendance redirects; stopped without submitting.")
@@ -509,11 +541,11 @@ def post_punch(config, headers, punch_id, punch_url):
         server_result=result_text,
         submission_status=submission_status,
     )
+    raise_if_cooldown_page(punch_response.text, config)
     punch_response.raise_for_status()
     if 300 <= punch_response.status_code < 400:
         write_audit_event(config, "submission_redirect", punch_id=str(punch_id), outcome="submission_unknown")
         return "unknown"  # Verify the task list; do not follow or repeat the POST.
-    raise_if_cooldown_page(punch_response.text)
     raise_if_login_abnormal(punch_response)
     print(sanitize(result_text, config))
     if submission_status == "rejected":
@@ -656,6 +688,11 @@ def check_all_cookies(config, checker=None):
     failures = []
     rows = []
     cookies = config["cookie"]
+    try:
+        store = CooldownState(config.get("cooldown_state_path", ""))
+    except CooldownStateError:
+        write_audit_event(config, "cooldown_state_error", reason="load_failed_no_network")
+        raise
     for account_number, cookie in enumerate(cookies, start=1):
         account_config = dict(config)
         account_config["_audit_account_number"] = account_number
@@ -663,9 +700,22 @@ def check_all_cookies(config, checker=None):
         account_config["_post_attempts"] = 0
         account_config["_confirmed"] = 0
         account_config["_outcome"] = "checked"
+        account_config["_cooldown_store"] = store
+        account_config["_cooldown_key"] = store.account_key(account_config["_audit_student_id"], cookie)
         detail = ""
-        write_audit_event(account_config, "account_check_started")
         try:
+            until = store.deadline(account_config["_cooldown_key"])
+            if until:
+                account_config["_outcome"] = "cooldown_wait"
+                resume = datetime.fromtimestamp(until, CHINA_TZ).isoformat(timespec="seconds")
+                detail = "No network request; retry no earlier than " + resume
+                write_audit_event(account_config, "account_check_skipped", reason="persisted_account_cooldown",
+                                  outcome="cooldown_wait", cooldown_until_china=resume, post_attempts=0)
+                rows.append({"account": account_number, "student_id": account_config["_audit_student_id"],
+                             "outcome": "cooldown_wait", "post_attempts": 0, "confirmed": 0, "detail": detail})
+                continue
+            store.clear_expired(account_config["_cooldown_key"])
+            write_audit_event(account_config, "account_check_started")
             found = checker(account_config, cookie)
             total_found += found
             write_audit_event(account_config, "account_check_finished", tasks_found=found,
@@ -678,6 +728,9 @@ def check_all_cookies(config, checker=None):
                 account_config["_outcome"] = "needs_punch_url"
             elif account_config["_post_attempts"] == 0 and isinstance(exc, AccountCooldownError):
                 account_config["_outcome"] = "cooldown"
+            elif isinstance(exc, CooldownStateError):
+                account_config["_outcome"] = "cooldown_state_error"
+                write_audit_event(account_config, "cooldown_state_error", reason="account_state_update_failed")
             elif account_config["_post_attempts"] == 0 and isinstance(exc, LoginRequiredError):
                 account_config["_outcome"] = "login_required"
             elif account_config["_post_attempts"] == 0 and isinstance(exc, UnrecognizedPageError):
