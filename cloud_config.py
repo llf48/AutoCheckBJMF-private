@@ -67,6 +67,7 @@ def load_cloud_config():
         "notice_text": os.environ.get("BJMF_NOTICE_TEXT", "").strip(),
         "direct_punch_url": os.environ.get("BJMF_DIRECT_PUNCH_URL", "").strip(),
         "audit_log_path": os.environ.get("BJMF_AUDIT_LOG", "").strip(),
+        "discovery_snapshot_dir": os.environ.get("BJMF_DISCOVERY_DIR", "").strip(),
         "cooldown_state_path": os.environ.get("BJMF_COOLDOWN_STATE", "bjmf-cooldowns.json").strip() or "bjmf-cooldowns.json",
         "cooldown_backoff_minutes": max(1, int(os.environ.get("BJMF_COOLDOWN_BACKOFF_MINUTES", "30") or "30")),
         "github_run_id": os.environ.get("GITHUB_RUN_ID", "").strip(),

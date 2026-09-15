@@ -5,3 +5,4 @@ __pycache__/
 bjmf-audit*.jsonl
 bjmf-cooldowns.json
 bjmf-cooldowns.json.tmp
+bjmf-discovery/

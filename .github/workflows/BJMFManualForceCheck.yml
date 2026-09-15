@@ -72,6 +72,7 @@ jobs:
           BJMF_NOTICE_TEXT: ${{ github.event.inputs.notice_text || '' }}
           BJMF_DIRECT_PUNCH_URL: ${{ github.event.inputs.direct_punch_url || '' }}
           BJMF_AUDIT_LOG: "bjmf-audit.jsonl"
+          BJMF_DISCOVERY_DIR: "bjmf-discovery"
           BJMF_COOLDOWN_STATE: "bjmf-cooldowns.json"
           BJMF_COOLDOWN_BACKOFF_MINUTES: "30"
         run: python -u cloud_check.py
@@ -91,3 +92,12 @@ jobs:
           path: bjmf-audit.jsonl
           if-no-files-found: ignore
           retention-days: 30
+
+      - name: Upload sanitized discovery snapshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: bjmf-discovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: bjmf-discovery/*.json
+          if-no-files-found: ignore
+          retention-days: 7

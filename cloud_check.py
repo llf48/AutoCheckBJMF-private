@@ -3,6 +3,7 @@ from cloud_config import seconds_until_china_time_window_end
 from cloud_config import seconds_until_china_time_window_start
 from audit_log import sanitize, write_account_summary, write_audit_event
 from cooldown_state import CooldownState, CooldownStateError, cooldown_delay_seconds
+from discovery_snapshot import capture_discovery_snapshot
 import random
 import re
 import time
@@ -636,7 +637,15 @@ def check_one_cookie(config, cookie):
     ):
         suffix = "/punchs"
         url = "https://k8n.cn/student/course/" + class_id + suffix
-        response = get_attendance_page(url, headers, config, phase="fallback_list")
+        try:
+            response = get_attendance_page(url, headers, config, phase="fallback_list")
+        except (requests.RequestException, RuntimeError):
+            # Preserve the already-fetched unparsed page if fallback is blocked;
+            # never fetch again to obtain a diagnostic sample.
+            for label, primary in responses:
+                if has_unparsed_static_qr_task(primary.text, gps_ids, scan_ids, class_id):
+                    capture_discovery_snapshot(config, primary, label)
+            raise
         responses.append((suffix, response))
         print_page_diagnostics(suffix, response, class_id, config)
         raise_if_cooldown_page(response.text)
@@ -644,11 +653,12 @@ def check_one_cookie(config, cookie):
         gps_ids, scan_ids = extract_punch_ids(pending_task_html(combined_html), class_id)
     submit_urls = extract_submit_urls(pending_task_html(combined_html), class_id)
     missing_error = None
-    for _, response in responses:
+    for label, response in responses:
         try:
             raise_if_unparsed_active_task(response.text, gps_ids, scan_ids, class_id)
         except MissingPunchIdError as exc:
             missing_error = exc
+            capture_discovery_snapshot(config, response, label)
     punch_ids = _unique(gps_ids + scan_ids)
     print("Checked at China time:", datetime.now(CHINA_TZ).isoformat(timespec="seconds"))
     print("Found GPS punch ids:", gps_ids)
