@@ -10,6 +10,7 @@ from unittest.mock import patch
 
 import cloud_check as check
 from cloud_config import load_cloud_config
+from discovery_snapshot import build_snapshot
 from test_check_outcomes import ACTIVE, COOKIE, GPS, ROOT, SIGNED, config, response
 
 
@@ -137,6 +138,95 @@ class DiscoverySnapshotTests(unittest.TestCase):
         self.assertIn("embedded_data", text)
         self.assertNotIn("embedded-secret", text)
         self.assertNotIn("987654", text)
+
+    def test_public_script_source_keeps_location_but_removes_query_and_fragment(self):
+        html = ACTIVE + '<script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js?token=short-secret&amp;v=private-version#private-fragment"></script>'
+        get, post, rows, _ = self.run_pages([response(html), response(html)])
+        self.assertEqual(get.call_count, 2)
+        post.assert_not_called()
+        self.assertEqual(rows[0]["outcome"], "needs_punch_url")
+        doc = json.loads(self.files()[0].read_text(encoding="utf-8"))
+        hint = doc["scripts"][0].get("source_hint", {})
+        self.assertEqual(hint.get("url_without_query"), "https://res.wx.qq.com/open/js/jweixin-1.6.0.js")
+        self.assertEqual(hint["query_keys"], ["token", "v"])
+        self.assertTrue(hint["query_values_removed"])
+        self.assertTrue(hint["fragment_removed"])
+        self.assertEqual(doc["schema_version"], 2)
+        for private in ("short-secret", "private-version", "private-fragment"):
+            self.assertNotIn(private, json.dumps(doc))
+
+    def test_relative_script_sources_resolve_against_observed_page_url(self):
+        html = ACTIVE + '<script src="/js/punch.js?sid=12345"></script><script src="//res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>'
+        primary, fallback = response(html), response(html)
+        primary.url = fallback.url = "https://bj.k8n.cn/student/course/96755/punchs?op=ing"
+        self.run_pages([primary, fallback])
+        doc = json.loads(self.files()[0].read_text(encoding="utf-8"))
+        urls = {s.get("source_hint", {}).get("url_without_query") for s in doc["scripts"]}
+        self.assertEqual(urls, {"https://bj.k8n.cn/js/punch.js", "https://res.wx.qq.com/open/js/jweixin-1.6.0.js"})
+        self.assertNotIn("12345", json.dumps(doc))
+
+    def test_public_bundle_endpoint_preserves_path_not_selector_values(self):
+        html = '<script src="https://cdn.k8n.cn/combine?a=private-selector&amp;v=private-build"></script>'
+        doc = build_snapshot(html, config(), "active_list", 200)
+        hint = doc["scripts"][0].get("source_hint", {})
+        self.assertEqual(hint.get("url_without_query"), "https://cdn.k8n.cn/combine")
+        self.assertTrue(hint["query_values_removed"])
+        self.assertEqual(hint["query_keys"], ["a", "v"])
+        self.assertNotIn("private-selector", json.dumps(doc))
+        self.assertNotIn("private-build", json.dumps(doc))
+
+    def test_untrusted_or_private_script_addresses_remain_shape_only(self):
+        addresses = (
+            "https://assets.example.test/js/punch.js?token=private-query",
+            "https://res.wx.qq.com.evil.test/open/js/punch.js",
+            "https://login-user:login-secret@res.wx.qq.com/open/js/punch.js",
+            "https://127.0.0.1/js/punch.js",
+            "https://res.wx.qq.com:8443/open/js/punch.js",
+            "https://k8n.cn/student/12345/script.js",
+            "https://cdn.k8n.cn/assets/123456789/user.js",
+            "https://cdn.k8n.cn/assets/token/private-key.js",
+            "https://cdn.k8n.cn/assets/%2574oken/private-key.js",
+            "https://cdn.k8n.cn/assets/" + "A" * 32 + "/punch.js",
+            "data:text/javascript,private-inline-code",
+            "javascript:privateFunction()",
+            "file:///C:/private-user/script.js",
+        )
+        for address in addresses:
+            with self.subTest(address=address):
+                doc = build_snapshot('<script src="' + address + '"></script>', config(), "active_list", 200)
+                hint = doc["scripts"][0].get("source_hint", {})
+                self.assertEqual(hint.get("status"), "shape_only")
+                self.assertIsNone(hint.get("url_without_query"))
+                for private in ("assets.example.test", "evil.test", "login-user", "login-secret", "123456789", "private-key", "private-inline-code", "privateFunction", "private-user", "A" * 32):
+                    self.assertNotIn(private, json.dumps(doc))
+
+    def test_known_cookie_material_in_public_script_path_is_not_retained(self):
+        cfg = config(cookie=["remember_student_demo=12345%7Cvery-private-secret%7C"])
+        doc = build_snapshot('<script src="https://cdn.k8n.cn/js/very-private-secret.js"></script>', cfg, "active_list", 200)
+        hint = doc["scripts"][0].get("source_hint", {})
+        self.assertEqual(hint.get("status"), "shape_only")
+        self.assertNotIn("very-private-secret", json.dumps(doc))
+
+    def test_base_element_is_respected_without_exposing_its_sensitive_values(self):
+        html = '<base href="https://res.wx.qq.com/open/js/?token=base-secret"><script src="jweixin-1.6.0.js"></script>'
+        doc = build_snapshot(html, config(), "active_list", 200)
+        hint = doc["scripts"][0].get("source_hint", {})
+        self.assertEqual(hint.get("url_without_query"), "https://res.wx.qq.com/open/js/jweixin-1.6.0.js")
+        self.assertNotIn("base-secret", json.dumps(doc))
+
+    def test_malformed_base_does_not_discard_the_failure_sample(self):
+        html = ACTIVE + '<base href="https://[broken"><script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>'
+        self.run_pages([response(html), response(html)])
+        self.assertEqual(len(self.files()), 2)
+        doc = json.loads(self.files()[0].read_text(encoding="utf-8"))
+        self.assertEqual(doc["scripts"][0]["source_hint"]["url_without_query"], "https://res.wx.qq.com/open/js/jweixin-1.6.0.js")
+
+    def test_script_source_does_not_expand_the_existing_attribute_limit(self):
+        attributes = " ".join('data-field-%s="value"' % chr(97 + i) for i in range(16))
+        doc = build_snapshot('<script ' + attributes + ' src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js"></script>', config(), "active_list", 200)
+        self.assertTrue(doc["truncated"])
+        self.assertLessEqual(len(doc["nodes"][0]["attributes"]), 16)
+        self.assertEqual(doc["scripts"][0]["source_hint"]["status"], "public_asset_reference")
 
     def test_config_enables_snapshot_directory_only_when_set(self):
         env = {"BJMF_CLASS_ID": "96755", "BJMF_LAT": "23", "BJMF_LNG": "113", "BJMF_ACC": "30", "BJMF_COOKIE": COOKIE,

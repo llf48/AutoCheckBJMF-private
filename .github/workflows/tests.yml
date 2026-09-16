@@ -33,10 +33,16 @@ jobs:
           from discovery_snapshot import capture_discovery_snapshot
           from test_check_outcomes import ACTIVE, config, response
           settings = config(discovery_snapshot_dir="bjmf-discovery-test", _audit_account_number=1)
-          capture_discovery_snapshot(settings, response(ACTIVE), "/punchs?op=ing")
+          markup = ACTIVE + '<script src="https://res.wx.qq.com/open/js/jweixin-1.6.0.js?token=synthetic-private-token#synthetic-private-fragment"></script>'
+          capture_discovery_snapshot(settings, response(markup), "/punchs?op=ing")
           path = Path("bjmf-discovery-test/account-1-active_list.json")
           record = json.loads(path.read_text(encoding="utf-8"))
           assert record["reason"] == "missing_punch_id" and record["nodes"]
+          assert record["schema_version"] == 2
+          hint = record["scripts"][0]["source_hint"]
+          assert hint["url_without_query"] == "https://res.wx.qq.com/open/js/jweixin-1.6.0.js"
+          assert hint["query_values_removed"] and hint["fragment_removed"]
+          assert "synthetic-private" not in json.dumps(record)
           print("Synthetic discovery sample created and validated without a platform request.")
           PY
       - name: Upload synthetic discovery sample

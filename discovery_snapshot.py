@@ -1,6 +1,7 @@
 """Non-executable, value-redacted schemas of already-fetched failure pages.
 
-No HTTP, JavaScript evaluation, raw HTML, input values, or string literals.
+No HTTP, JavaScript evaluation, raw HTML, input values, or query values.
+Only allowlisted public script locators are retained beyond the old schemas.
 These samples are diagnostic data, never input to attendance submission.
 """
 import hashlib
@@ -8,7 +9,7 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from urllib.parse import parse_qsl, unquote, urlsplit
+from urllib.parse import parse_qsl, unquote, urljoin, urlsplit
 
 from bs4 import BeautifulSoup
 from audit_log import CHINA_TZ, sanitize, write_audit_event
@@ -17,6 +18,12 @@ MAX_HTML = 262144
 MAX_NODES = 160
 MAX_SCRIPTS = 8
 MAX_BYTES = 262144
+PUBLIC_SCRIPT_HOSTS = frozenset({
+    "k8n.cn", "bj.k8n.cn", "cdn.k8n.cn", "static.k8n.cn",
+    "res.wx.qq.com", "res2.wx.qq.com", "apps.bdimg.com",
+    "cdn.bootcdn.net", "cdn.bootcss.com", "cdn.staticfile.org",
+    "cdn.staticfile.net", "cdn.jsdelivr.net", "cdnjs.cloudflare.com", "unpkg.com",
+})
 ROUTE_WORDS = set("student course punchs punchw punchcard punchscan attendance start api assets js css login scan qr gps".split())
 TAGS = set("html head body div span a button form input select option textarea label script template noscript p ul li i b strong img canvas meta link table tr td section main nav".split())
 CLASSES = set("wrapper page page-content vue-loading card card-body row btn btn-primary punch-demo punch-tabs punch-tab is-active punch-card punch-card--primary punch-card--success punch-card--muted punch-status punch-meta punch-action punch-info-badge punch-success-info".split())
@@ -48,6 +55,41 @@ def url_shape(value, config):
                 "fragment_present": bool(parsed.fragment)}
     except ValueError:
         return {"origin": "unrecognized"}
+
+
+def script_source_hint(value, config, base_url=""):
+    """Keep conservative public asset references, never fetchable credentials.
+
+    A URL without query is a locator, not a complete or verified resource URL:
+    combined-asset endpoints may still require the discarded parameter values.
+    Unknown hosts and suspicious paths deliberately remain structure-only.
+    """
+    result = {"status": "shape_only", "url_without_query": None}
+    try:
+        if len(value) > 4096 or re.search(r"[\x00-\x20\\]", value):
+            return result
+        parsed = urlsplit(urljoin(base_url, value))
+        result.update(query_keys=url_shape(value, config).get("query_keys", []),
+                      query_values_removed=bool(parsed.query), fragment_removed=bool(parsed.fragment))
+        if (parsed.scheme not in ("http", "https") or parsed.hostname not in PUBLIC_SCRIPT_HOSTS
+                or parsed.username is not None or parsed.password is not None
+                or parsed.port not in (None, 443 if parsed.scheme == "https" else 80)):
+            return result
+        path = parsed.path or "/"
+        # Encoded, account-specific and opaque/token-like path components cannot
+        # be proven public by this collector, even on an allowed host.
+        if (len(path) > 240 or not re.fullmatch(r"/[A-Za-z0-9_./@+-]*", path)
+                or sanitize(path, config) != path or re.search(r"\d{5,}|[a-fA-F0-9]{16,}", path)
+                or any(part in (".", "..") or len(part) > 80 for part in path.split("/"))
+                or re.search(r"(?:^|[/_.-])(?:student|user|users|account|auth|oauth|login|token|secret|key|cookie|session|signature)(?:$|[/_.-])", path, re.I)):
+            return result
+        if parsed.hostname in {"k8n.cn", "bj.k8n.cn"} and not path.startswith(("/js/", "/assets/", "/static/", "/libs/", "/dist/")):
+            return result
+        result.update(status="public_asset_reference",
+                      url_without_query=parsed.scheme + "://" + parsed.hostname + path)
+    except (TypeError, ValueError):
+        pass
+    return result
 
 
 def data_shape(value, config, depth=0):
@@ -142,8 +184,15 @@ def attribute_shape(name, value, config):
     return {"type": "string"}  # Includes hidden input values and opaque IDs.
 
 
-def build_snapshot(html, config, page, status):
+def build_snapshot(html, config, page, status, page_url=""):
     soup = BeautifulSoup(html[:MAX_HTML], "html.parser")
+    base = soup.find("base", href=True)
+    base_url = page_url
+    if base:
+        try:
+            base_url = urljoin(page_url, base["href"])
+        except ValueError:
+            pass  # One malformed base must not discard the whole page sample.
     tags = soup.find_all(True)
     indices = {id(tag): index for index, tag in enumerate(tags)}
     ordered = sorted(tags, key=lambda t: 0 if t.name in ("a", "button", "form", "input") else 1)
@@ -152,6 +201,8 @@ def build_snapshot(html, config, page, status):
         node = {"index": indices[id(tag)], "parent": indices.get(id(tag.parent)),
                 "tag": tag.name if tag.name in TAGS else "other",
                 "attributes": {identifier(k, config): attribute_shape(k, v, config) for k, v in list(tag.attrs.items())[:16]}}
+        if tag.name == "script" and "src" in node["attributes"]:
+            node["attributes"]["src"] = {"url": url_shape(tag["src"], config)}
         nodes.append(node)
     scripts = soup.find_all("script")
     scripts = sorted(scripts, key=lambda t: 0 if re.search(r"punch|scan|attendance|qrcode", str(t), re.I) else 1)
@@ -160,6 +211,7 @@ def build_snapshot(html, config, page, status):
         record = {"node_index": indices[id(tag)]}
         if tag.get("src"):
             record["external_src"] = url_shape(tag["src"], config)
+            record["source_hint"] = script_source_hint(tag["src"], config, base_url)
         else:
             text = tag.string or tag.get_text()
             try:
@@ -167,10 +219,10 @@ def build_snapshot(html, config, page, status):
             except (ValueError, RecursionError):
                 record["javascript"] = script_shape(text, config)
         script_records.append(record)
-    return {"schema_version": 1, "reason": "missing_punch_id", "page": page, "account": config.get("_audit_account_number", 0),
+    return {"schema_version": 2, "reason": "missing_punch_id", "page": page, "account": config.get("_audit_account_number", 0),
             "time_china": datetime.now(CHINA_TZ).isoformat(timespec="seconds"), "http_status": status,
             "html_sha256": hashlib.sha256(html.encode("utf-8", errors="replace")).hexdigest(),
-            "redaction": "No raw HTML, visible text, literal values, credentials or executable scripts. Schema names only.",
+            "redaction": "Schema names and allowlisted public script locators only. No raw HTML, visible text, query values, credentials or executable scripts.",
             "node_count": len(tags), "script_count": len(scripts), "nodes": nodes, "scripts": script_records,
             "truncated": (len(html) > MAX_HTML or len(tags) > MAX_NODES or len(scripts) > MAX_SCRIPTS
                           or any(len(t.attrs) > 16 for t in ordered[:MAX_NODES]))}
@@ -187,7 +239,7 @@ def capture_discovery_snapshot(config, response, label):
     try:
         if path.exists():
             return  # At most one sample per account/page in this job's workspace.
-        record = build_snapshot(response.text, config, page, response.status_code)
+        record = build_snapshot(response.text, config, page, response.status_code, response.url)
         encoded = json.dumps(record, ensure_ascii=True, indent=2)
         while len(encoded.encode("utf-8")) > MAX_BYTES:
             record["truncated"] = True
